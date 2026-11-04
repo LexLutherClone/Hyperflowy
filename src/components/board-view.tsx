@@ -300,6 +300,7 @@ function BoardCardView({
         )}
         {editing ? (
           <CardTextEditor
+            nodeId={card.contentId}
             source={node.text}
             onCommit={(next) => {
               setEditing(false);
@@ -395,10 +396,13 @@ function BoardCardView({
  * Escape discards, and blur commits.
  */
 function CardTextEditor({
+  nodeId,
   source,
   onCommit,
   onCancel,
 }: {
+  /** Content id: focus registers this editor's base text (ADR 0077). */
+  nodeId: string;
   source: string;
   onCommit: (text: string) => void;
   onCancel: () => void;
@@ -416,6 +420,7 @@ function CardTextEditor({
   return (
     <textarea
       data-board-no-drag=""
+      data-text-shadow-id={nodeId}
       aria-label="Card text"
       // oxlint-disable-next-line jsx-a11y/no-autofocus -- opened by an explicit click
       autoFocus

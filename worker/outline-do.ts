@@ -44,6 +44,7 @@ import {
 } from "./lunora-retirement";
 import { planAddToDaily } from "./outline-ops";
 import { batchExceedsNodeLimit, countNetGrowth } from "./plan";
+import { rebaseTextPatches } from "./text-patch";
 import { APP_VERSION } from "./version";
 
 // The wire types (`Node`, `ChangeOp`, `ChangeFrame`, `ServerMessage`) come from
@@ -973,13 +974,18 @@ export class UserOutlineDO extends DurableObject<Env> {
   }
 
   patchNodes(
-    updates: readonly PatchUpdate[],
+    incoming: readonly PatchUpdate[],
     clientId?: string,
     allowLockChanges = false,
   ): number | "locked" {
     this.assertWritable();
     const frames = this.ctx.storage.transactionSync(() => {
       const current = this.getNodes();
+      // A text write derived from an older text is merged onto the stored one
+      // rather than erasing a concurrent edit (ADR 0077). Inside the
+      // transaction, so the read and the write see the same row.
+      const byId = new Map(current.map((n) => [n.id, n.text]));
+      const { updates } = rebaseTextPatches(incoming, (id) => byId.get(id));
       const planned: Array<{ id: string; changes: Partial<Node> }> = [];
       for (const u of updates) {
         const changes = Object.fromEntries(

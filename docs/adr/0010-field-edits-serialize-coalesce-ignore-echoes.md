@@ -56,3 +56,8 @@ per-call, but rapid calls race out of order and bill one DO write per character;
 PATCH on a timer (adds latency and can lose the last edit on unload — coalescing gets the same
 savings with neither); or remove the focused-bullet echo guard ("the store is the source of truth")
 — it is, except for the one node whose caret the user owns, where repainting an echo is the scramble.
+
+**Amendment (ADR 0077).** Field-wise last-write-wins still holds for every
+field except text written with a base. A text write now carries `baseText`,
+and the DO merges it with a concurrent edit instead of overwriting it. See
+[ADR 0077: Concurrent text merge](./0077-concurrent-text-merge.md).

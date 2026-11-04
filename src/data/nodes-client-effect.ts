@@ -212,9 +212,10 @@ function isNodeLimitBody(
 export const createNodesE = (nodes: Node[]): Effect.Effect<void, NodesError> =>
   request("POST", { nodes, clientId: getWriteClientId() }).pipe(Effect.asVoid);
 
-/** Field-edit PATCH (text, completed, …) — one or more `{ id, changes }`. */
+/** Field-edit PATCH (text, completed, …) — one or more `{ id, changes }`. A
+ *  text change may carry `baseText`, the text it was derived from (ADR 0077). */
 export const updateNodesE = (
-  updates: { id: string; changes: Partial<Node> }[],
+  updates: { id: string; changes: Partial<Node>; baseText?: string }[],
 ): Effect.Effect<{ seq: number }, NodesError> =>
   request("PATCH", { updates, clientId: getWriteClientId() }).pipe(
     Effect.flatMap(decodeSeq),

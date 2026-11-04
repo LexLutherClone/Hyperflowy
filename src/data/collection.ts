@@ -8,7 +8,7 @@ import type { ChangeOp, ServerMessage, SyncEvent } from "./realtime";
 import type { Node } from "./schema";
 
 import { hasWindow } from "../env";
-import { createNodes, deleteNodes, updateNodes } from "./api";
+import { createNodes, deleteNodes, hasPendingText, updateNodes } from "./api";
 import { noteServerVersion } from "./app-version";
 import { publishCalendarSync } from "./calendar-sync";
 import { isMirrorsEnabled } from "./flags";
@@ -24,6 +24,12 @@ import {
   nextStreak,
   notifySyncInterrupted,
 } from "./sync-supervision";
+import {
+  beginTextEdit,
+  configureTextShadow,
+  release as releaseTextShadow,
+  textBaseFor,
+} from "./text-shadow";
 import { buildTreeIndex, childrenOf, now } from "./tree";
 import { getWriteClientId } from "./write-origin";
 
@@ -506,11 +512,13 @@ export const nodesCollection = createCollection({
             write({ type: "delete", key: op.key });
             echoedText.delete(op.key);
             syncedNodes.delete(op.key);
+            releaseTextShadow(op.key);
           } else {
             const value = withNodeDefaults(op.value);
             write({ type: op.op, value });
             syncedNodes.set(value.id, value);
             echoedText.set(op.value.id, op.value.text);
+            releaseTextShadow(value.id);
           }
         }
         metadata?.collection.set("cursor", seq);
@@ -701,10 +709,17 @@ export const nodesCollection = createCollection({
     // SAFETY: update mutations on this collection only change Node fields, and keys are node ids (getKey: node.id).
     await persistOrNotify(
       updateNodes(
-        transaction.mutations.map((m) => ({
-          id: m.key as string,
-          changes: m.changes as Partial<Node>,
-        })),
+        transaction.mutations.map((m) => {
+          // SAFETY: keys are node ids (getKey: node.id).
+          const id = m.key as string;
+          // SAFETY: update mutations on this collection only change Node fields.
+          const changes = m.changes as Partial<Node>;
+          // A text write names the text it was derived from, so the DO can
+          // merge it with a concurrent edit instead of erasing it (ADR 0077).
+          return changes.text === undefined
+            ? { id, changes }
+            : { id, changes, baseText: textBaseFor(id, m.original.text) };
+        }),
       ),
     );
     return { refetch: false };
@@ -717,3 +732,38 @@ export const nodesCollection = createCollection({
     return { refetch: false };
   },
 });
+
+// --- Concurrent text merge: edit tracking (ADR 0077) ------------------------
+// A node is "being edited" while focus is inside its text editor: an outline
+// row or zoomed title (`data-history-node-id`, the content id) or a board card
+// editor (`data-text-shadow-id`). Its shadow must outlive echoes then, because
+// the focused DOM ignores them (ADR 0010).
+const EDITOR = "[data-history-node-id],[data-text-shadow-id]";
+function editorNodeId(el: Element | null): string | null {
+  const host = el?.closest(EDITOR);
+  return (
+    host?.getAttribute("data-text-shadow-id") ??
+    host?.getAttribute("data-history-node-id") ??
+    null
+  );
+}
+if (hasWindow()) {
+  configureTextShadow({
+    isEditing: (id) => editorNodeId(document.activeElement) === id,
+    hasPending: hasPendingText,
+  });
+  document.addEventListener("focusin", (e) => {
+    // SAFETY: focus events target elements
+    const id = editorNodeId(e.target as Element);
+    if (!id) return;
+    // The editor shows the stored text on focus: that is what typing builds on.
+    const text = nodesCollection.get(id)?.text;
+    if (text !== undefined) beginTextEdit(id, text);
+  });
+  document.addEventListener("focusout", (e) => {
+    // SAFETY: focus events target elements
+    const id = editorNodeId(e.target as Element);
+    // After blur handlers have written their last read of the DOM.
+    if (id) setTimeout(() => releaseTextShadow(id), 0);
+  });
+}

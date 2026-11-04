@@ -11,6 +11,7 @@ import {
   sendBatchE,
   updateNodesE,
 } from "./nodes-client-effect";
+import { noteTextSent, noteTextSettled } from "./text-shadow";
 
 /**
  * Throw-based client for the /api/nodes Worker (which routes to the user's
@@ -175,11 +176,18 @@ export const createNodes = (nodes: Node[]): Promise<void> =>
 interface FieldGen {
   /** Field-wise last-write-wins merge accumulated for this generation. */
   pending: Map<string, Partial<Node>>;
+  /** Per node, the text the generation's FIRST text change was derived from
+   *  (ADR 0077). Later changes in the same generation build on that one, so
+   *  the first base is the base of the merged result. */
+  bases: Map<string, string>;
   /** The one promise every caller of this generation shares (shared-fate). */
   promise: Promise<void>;
 }
 
 let currentGen: FieldGen | null = null;
+// Every generation not yet drained, including ones a structural write sealed
+// (no longer `currentGen`) that still wait their turn in the lane.
+const undrained = new Set<FieldGen>();
 
 /**
  * Arm a generation's flush: reserve our place, then drain everything
@@ -192,15 +200,30 @@ function startFieldFlush(gen: FieldGen): Promise<void> {
     Effect.suspend(() => {
       // An older fenced generation must not detach a newer open generation.
       if (currentGen === gen) currentGen = null;
+      undrained.delete(gen);
       if (gen.pending.size === 0) return Effect.void;
-      const updates = [...gen.pending].map(([id, changes]) => ({
-        id,
-        changes,
-      }));
+      const updates = [...gen.pending].map(([id, changes]) => {
+        const baseText =
+          changes.text === undefined ? undefined : gen.bases.get(id);
+        return baseText === undefined
+          ? { id, changes }
+          : { id, changes, baseText };
+      });
+      // The sent text becomes each node's shadow (ADR 0077) until it settles.
+      const texts = updates.flatMap((u) =>
+        u.changes.text === undefined ? [] : [[u.id, u.changes.text] as const],
+      );
+      for (const [id, text] of texts) noteTextSent(id, text);
       return updateNodesE(updates).pipe(
         Effect.tap(({ seq }) =>
           Effect.sync(() => {
             acknowledgedSeq = Math.max(acknowledgedSeq, seq);
+          }),
+        ),
+        Effect.onExit((exit) =>
+          Effect.sync(() => {
+            for (const [id] of texts)
+              noteTextSettled(id, exit._tag === "Success");
           }),
         ),
         Effect.asVoid,
@@ -211,7 +234,7 @@ function startFieldFlush(gen: FieldGen): Promise<void> {
 }
 
 export function updateNodes(
-  updates: { id: string; changes: Partial<Node> }[],
+  updates: { id: string; changes: Partial<Node>; baseText?: string }[],
 ): Promise<void> {
   // Join the open generation, or open one. Assign `currentGen` and merge BEFORE
   // arming the flush, so its reservation follows this field submission and the
@@ -219,12 +242,15 @@ export function updateNodes(
   let gen = currentGen;
   const fresh = !gen;
   if (!gen) {
-    gen = { pending: new Map(), promise: Promise.resolve() };
+    gen = { pending: new Map(), bases: new Map(), promise: Promise.resolve() };
     currentGen = gen;
+    undrained.add(gen);
   }
   for (const u of updates) {
     const prev = gen.pending.get(u.id);
     gen.pending.set(u.id, prev ? { ...prev, ...u.changes } : { ...u.changes });
+    if (u.baseText !== undefined && !gen.bases.has(u.id))
+      gen.bases.set(u.id, u.baseText);
   }
   if (fresh) gen.promise = startFieldFlush(gen);
   return gen.promise;
@@ -232,3 +258,11 @@ export function updateNodes(
 
 export const deleteNodes = (ids: string[]): Promise<void> =>
   runPromise(enqueueWrite(deleteNodesE(ids)));
+
+/** True while a text change for `id` waits in the open generation (ADR 0077:
+ *  its shadow must outlive it). */
+export function hasPendingText(id: string): boolean {
+  for (const gen of undrained)
+    if (gen.pending.get(id)?.text !== undefined) return true;
+  return false;
+}

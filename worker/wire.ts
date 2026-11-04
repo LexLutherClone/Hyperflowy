@@ -46,6 +46,10 @@ export const NodesPatchBody = Schema.Struct({
     Schema.Struct({
       id: Schema.String,
       changes: Schema.Record(Schema.String, Schema.Unknown),
+      // The text `changes.text` was derived from (ADR 0077). When the stored
+      // text has moved on since, the DO merges instead of overwriting. Absent
+      // = last-write-wins (older clients, non-text edits).
+      baseText: Schema.optional(Schema.String),
     }),
   ),
   clientId: Schema.optional(Schema.String),

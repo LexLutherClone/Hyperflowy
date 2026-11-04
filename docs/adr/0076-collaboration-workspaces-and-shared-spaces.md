@@ -1,0 +1,103 @@
+---
+status: proposed
+---
+
+# Collaboration: workspaces, shared spaces, roles
+
+Hyperflowy grows from one private outline per account into notes shared with
+people and teams. This ADR records the product decisions and the architecture
+that carries them, and splits the work into milestones. Each milestone gets its
+own ADR as it is built; this one is the map.
+
+## Product decisions (owner, 2026-11-04)
+
+- **Private by default.** Everything in a personal outline stays visible only
+  to its owner. Sharing is an explicit act on a node.
+- **Four roles** on a shared space, each including the one before it:
+  - **Viewer:** read the subtree.
+  - **Commenter:** read, and comment on nodes.
+  - **Editor:** read, comment, and change content and structure.
+  - **Admin:** everything an editor can do, plus manage who has access, and
+    re-share.
+- **Recipients are Hyperflowy accounts.** Shares go to people by the email of
+  their account, or to groups of them. No anonymous or public links.
+- **Shared team workspaces.** A workspace is a team: it has members, and it
+  owns the named groups ("Design", "Leads") that members share with. Groups are
+  managed by workspace admins and visible to all members.
+- **Mirrors never carry private content into a share.** Mirroring a node the
+  space's collaborators can't see into a shared space is refused with an
+  explanation, and offers to **copy** it instead, with a choice of which
+  children come along. Later: a **swap** that moves the source into the shared
+  space and leaves a mirror where it was.
+
+## Architecture
+
+**One Durable Object per shared space.** A shared subtree moves out of its
+owner's `UserOutlineDO` into its own `SpaceDO`, the same class shape (SQLite
+nodes table, changelog, WebSocket fan-out, PITR, R2 snapshots). The personal
+outline keeps a **mount node** where the subtree was; every member's outline
+gets one too, placed where they choose. Per-object single-writer ordering,
+isolation, and backups all carry over unchanged (ADR 0008), and the permission
+boundary is the object boundary: a DO holds exactly one space's content.
+Rejected: serving collaborators a filtered view of the owner's DO. Moves across
+the private/shared line, search, backlinks, and daily notes would all have to
+filter row by row, and one bug leaks private notes.
+
+**Access control in D1.** New tables: `workspaces`, `workspace_members`
+(role: owner, admin, member), `groups`, `group_members`, `spaces` (owner, and
+optionally the workspace that owns it), and `space_grants` (grantee is a user
+or a group, role is one of the four above). A user's role on a space is the
+highest of their direct grant and their groups' grants. The Worker resolves it
+on connect and on every write and passes it to the `SpaceDO`, which enforces it
+per operation; a revoked grant closes the member's socket.
+
+**The client reads several objects as one tree.** Today one socket feeds one
+collection. A member's outline becomes their own DO plus one sync stream per
+mounted space, merged into the tree store, with each node tagged by the space
+that owns it. Writes route to the owning space; a viewer's or commenter's
+nodes render read-only.
+
+**Crossing a boundary is copy then delete.** Moving nodes between the personal
+outline and a space, or between spaces, can't be one atomic batch across two
+objects. It runs as an idempotent operation: write the copy with fresh ids,
+verify, then delete the original, resumable if interrupted.
+
+**Mirrors.** Inside one space, mirrors work as today (ADR 0022). Across spaces,
+`mirrorOf` becomes a (space, node) reference. A mirror renders only for viewers
+who can read its source, and editing through it needs edit rights on the
+source. A mirror of private content placed into a shared space is refused (the
+product rule above), which keeps backlinks, search, MCP, and export from ever
+reaching it.
+
+**Everything that reads content respects the role.** Search, DQL, backlinks,
+OPML and markdown export, MCP and the CLI resolve the caller's spaces and role
+first. Spoiler redaction for agents (ADR 0043) applies inside spaces too.
+
+**Backups per space.** The nightly R2 sweep and PITR restore include every
+`SpaceDO`. Restoring a space affects all its members, so it is an admin action
+with an explicit confirmation. The sweep moves onto Queues or Workflows before
+the object count outgrows one cron invocation's subrequest budget.
+
+## Milestones
+
+0. **Concurrent text merge.** Done: [ADR 0077](./0077-concurrent-text-merge.md).
+1. **Workspaces and groups.** D1 schema, settings UI to create a workspace,
+   invite existing accounts by email, and manage groups. No content changes.
+2. **Shared spaces.** `SpaceDO`, share a node with people or groups as Viewer,
+   Editor, or Admin, mount points, role enforcement, revocation, per-space
+   backups.
+3. **Multi-space client.** Several sync streams in one tree, cross-space moves,
+   read-only rendering, permission-aware search, backlinks, export, MCP, CLI.
+4. **Comments and the Commenter role.** Comment threads on nodes, mentions,
+   notifications through `worker/email.ts`.
+5. **Mirrors across spaces.** (space, node) mirrors, the refusal rule, and the
+   selective-copy dialog.
+6. **Swap.** Move a mirror's source into a shared space, leaving a mirror
+   behind.
+
+## Open questions for the owner
+
+- Who may create a workspace, and is it a paid feature or per-seat billing
+  (`@better-auth/stripe` is already wired)?
+- When a member leaves a workspace, what happens to spaces they own?
+- Can a space be shared beyond its workspace, with people who aren't members?
