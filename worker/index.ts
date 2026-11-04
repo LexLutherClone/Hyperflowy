@@ -98,6 +98,7 @@ import {
   WaitlistPostBody,
   WeekStartPostBody,
 } from "./wire";
+import { handleWorkspaces } from "./workspaces";
 
 // Re-export the DO class so the Workers runtime can instantiate it (the
 // wrangler `durable_objects` binding resolves `UserOutlineDO` from the entry).
@@ -140,6 +141,8 @@ interface Env extends LunoraEnv {
   UNFURL_LIMIT: RateLimit;
   /** Account-scoped external Quick-add and key-management abuse limit. */
   CAPTURE_LIMIT: RateLimit;
+  /** Per-user writes to /api/workspaces (ADR 0078). */
+  WORKSPACE_LIMIT: RateLimit;
   /** Per-IP rate limiter for the public alpha-waitlist endpoint. */
   WAITLIST_LIMIT: RateLimit;
   /** Comma-separated Better Auth `user.id`s allowed on admin surfaces — the
@@ -1236,6 +1239,19 @@ function handleApiRequest(
     if (!session) return json({ error: "unauthorized" }, 401);
 
     const userId = resolveUserId(session.user.id, env);
+
+    // Team workspaces, members, invitations, and groups (ADR 0078). Keyed by
+    // the stable Better Auth user id, never the DO-routing id.
+    if (
+      url.pathname === "/api/workspaces" ||
+      url.pathname.startsWith("/api/workspaces/") ||
+      url.pathname.startsWith("/api/workspace-invites/")
+    ) {
+      return yield* handleWorkspaces(request, env, {
+        userId: session.user.id,
+        verifiedEmail: session.user.emailVerified ? session.user.email : null,
+      });
+    }
 
     if (url.pathname === "/api/capture-keys") {
       return yield* handleCaptureKeys(

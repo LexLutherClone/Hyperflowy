@@ -81,8 +81,8 @@ the object count outgrows one cron invocation's subrequest budget.
 ## Milestones
 
 0. **Concurrent text merge.** Done: [ADR 0077](./0077-concurrent-text-merge.md).
-1. **Workspaces and groups.** D1 schema, settings UI to create a workspace,
-   invite existing accounts by email, and manage groups. No content changes.
+1. **Workspaces and groups.** Done:
+   [ADR 0078](./0078-workspaces-and-groups.md).
 2. **Shared spaces.** `SpaceDO`, share a node with people or groups as Viewer,
    Editor, or Admin, mount points, role enforcement, revocation, per-space
    backups.
@@ -97,7 +97,14 @@ the object count outgrows one cron invocation's subrequest budget.
 
 ## Open questions for the owner
 
-- Who may create a workspace, and is it a paid feature or per-seat billing
-  (`@better-auth/stripe` is already wired)?
-- When a member leaves a workspace, what happens to spaces they own?
-- Can a space be shared beyond its workspace, with people who aren't members?
+Defaults in effect until the owner decides (2026-11-04, "proceed"):
+
+- **Who may create a workspace, and is it paid?** Any verified account, free.
+  A plan check in front of `POST /api/workspaces` changes that without a
+  migration.
+- **When a member leaves, what happens to spaces they own?** Membership ends;
+  the workspace keeps its groups. For spaces (milestone 2), a space owned by a
+  workspace stays with the workspace. When an owning account is deleted,
+  ownership passes to the longest-standing admin, else member (ADR 0078).
+- **Can a space be shared beyond its workspace?** Undecided; settled with
+  milestone 2.

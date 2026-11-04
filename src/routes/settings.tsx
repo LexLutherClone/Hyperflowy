@@ -26,6 +26,7 @@ import { CliSetupDialog } from "../components/cli-setup-dialog";
 import { DeleteAccountDialog } from "../components/delete-account-dialog";
 import { McpConnectDialog } from "../components/mcp-connect-dialog";
 import { openOpmlImport } from "../components/opml-import-opener";
+import { RowGroup, Section, SettingRow } from "../components/settings-layout";
 import {
   SettingsOptionRow,
   SettingsSwitchTarget,
@@ -40,6 +41,7 @@ import {
 } from "../components/ui/accordion";
 import { Button } from "../components/ui/button";
 import { Switch } from "../components/ui/switch";
+import { WorkspacesSection } from "../components/workspaces-settings";
 import { localDateKey } from "../data/date-links";
 import { downloadTextFile } from "../data/download";
 import {
@@ -113,72 +115,6 @@ function exportWholeOutlineOpml() {
 }
 
 // --- Small presentational primitives -----------------------------------------
-
-/** A titled section: a quiet uppercase-ish label, optional caption, then body. */
-function Section({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="flex flex-col gap-3">
-      <div className="flex flex-col gap-0.5">
-        <h2 className="text-sm font-medium text-foreground">{title}</h2>
-        {description && (
-          <p className="text-sm text-muted-foreground">{description}</p>
-        )}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-/** A bordered container that stacks {@link SettingRow}s with divider lines. */
-function RowGroup({ children }: { children: ReactNode }) {
-  return (
-    <div className="divide-y divide-border overflow-hidden rounded-xl ring-1 ring-foreground/10">
-      {children}
-    </div>
-  );
-}
-
-/** One label/description on the left, an action control on the right. */
-function SettingRow({
-  icon,
-  title,
-  description,
-  action,
-}: {
-  icon?: ReactNode;
-  title: ReactNode;
-  description?: ReactNode;
-  action: ReactNode;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-4 bg-card px-4 py-3 sm:flex-nowrap">
-      <div className="flex min-w-0 items-start gap-3">
-        {icon && (
-          <span className="mt-0.5 shrink-0 text-muted-foreground [&_svg]:size-4">
-            {icon}
-          </span>
-        )}
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground">{title}</div>
-          {description && (
-            <div className="mt-0.5 text-sm text-muted-foreground">
-              {description}
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="ml-auto shrink-0">{action}</div>
-    </div>
-  );
-}
 
 /** A radio-style segmented control (theme, text size, plugin options). */
 function Segmented<T extends string>({
@@ -1227,6 +1163,7 @@ function SettingsPage() {
       </header>
 
       <div className="mx-auto flex max-w-2xl flex-col gap-10 px-4 py-8 sm:px-6">
+        <WorkspacesSection />
         <ConnectionsSection plan={plan} />
         <PluginsSection />
         <AppearanceSection />

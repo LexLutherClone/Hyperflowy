@@ -10,6 +10,7 @@
 import Stripe from "stripe";
 
 import { normalizeEmail } from "./invites";
+import { workspaceDeletionStatements } from "./workspaces-store";
 
 /**
  * The owner-continuity account (OWNER_USER_ID) maps to the constant 'default'
@@ -186,5 +187,7 @@ export function deleteResidualUserRows(
     db.prepare("DELETE FROM oauthApplication WHERE userId = ?").bind(userId),
     db.prepare("DELETE FROM waitlist WHERE email = ?").bind(normalized),
     db.prepare("DELETE FROM invites WHERE email = ?").bind(normalized),
+    // Hand off owned workspaces and leave the rest (ADR 0078).
+    ...workspaceDeletionStatements(db, userId, email),
   ]);
 }

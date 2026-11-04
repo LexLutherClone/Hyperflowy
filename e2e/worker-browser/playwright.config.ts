@@ -2,7 +2,11 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: ".",
-  testMatch: ["workflow.spec.ts", "concurrent-text.spec.ts"],
+  testMatch: [
+    "workflow.spec.ts",
+    "concurrent-text.spec.ts",
+    "workspaces.spec.ts",
+  ],
   workers: 1,
   retries: 0,
   timeout: 90_000,
