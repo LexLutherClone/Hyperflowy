@@ -75,6 +75,7 @@ import {
   toggleCompleted,
 } from "../data/mutations";
 import { flattenNodeText } from "../data/node-links";
+import { useNodeView } from "../data/node-views";
 import { appRuntime } from "../data/runtime";
 import { bootstrapOutline } from "../data/seed";
 import { useSyncSelectionFillRows } from "../data/selection-fill";
@@ -149,6 +150,7 @@ import {
   useViewFilter,
 } from "../plugins/registry";
 import { Backlinks } from "./backlinks";
+import { BoardView } from "./board-view";
 import { TitleParagraphGlyph } from "./bullet-glyph";
 import { caretPosition } from "./caret-menu-utils";
 import {
@@ -759,6 +761,13 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
   // stream (ADR 0070): the day stream around a daily note. A filter shows the
   // single root, because a filter transforms one root.
   const stream = useViewStream(rootId, filter === null);
+  // Board view (ADR 0075): a zoomed node set to "board" renders its children
+  // as columns instead of rows. A filter or a view stream keeps the list, since
+  // both are ways of reading rows (a filter prunes them, a stream continues
+  // them), so the board yields to them rather than half-applying either.
+  const nodeView = useNodeView(rootId);
+  const board =
+    nodeView === "board" && zoomedNode !== null && filter === null && !stream;
   // `?day=` on load: start the stream there. Planned once, when the stream is
   // first ready -- on a cold load the daily index arrives after the first
   // render, so the plan waits for it. Later writes follow the scroll position
@@ -1961,9 +1970,11 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
         role="region"
         aria-label="Outline"
         className={
-          spotlight
-            ? "mx-auto mb-[50vh] max-w-180 p-6 pt-[50vh] max-sm:p-4 max-sm:pt-[50vh]"
-            : "mx-auto mb-[50vh] max-w-180 p-6 max-sm:p-4"
+          board
+            ? "mx-auto mb-[50vh] max-w-[min(100%,1600px)] p-6 max-sm:p-4"
+            : spotlight
+              ? "mx-auto mb-[50vh] max-w-180 p-6 pt-[50vh] max-sm:p-4 max-sm:pt-[50vh]"
+              : "mx-auto mb-[50vh] max-w-180 p-6 max-sm:p-4"
         }
         onMouseDown={onContentMouseDown}
         onPointerDown={onContentPointerDown}
@@ -2089,7 +2100,15 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
               </>
             )}
 
-            {noMatches && renderedRows.length === 0 && filter?.emptyMessage ? (
+            {board && rootId !== null ? (
+              <BoardView
+                rootId={rootId}
+                isHidden={isHidden}
+                onToggleCompleted={commands.onToggleCompleted}
+              />
+            ) : noMatches &&
+              renderedRows.length === 0 &&
+              filter?.emptyMessage ? (
               <div className="outline-empty">{filter.emptyMessage}</div>
             ) : (
               <div

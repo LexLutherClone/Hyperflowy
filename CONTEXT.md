@@ -68,6 +68,10 @@ _Avoid_: plain-text paste (names the clipboard lane, not the behavior), paste wi
 A run of a node's text the author marks as sensitive — `||hidden||` in the source. To a human (in the editor, in a copy, in an export) it is merely _hidden until revealed_: shown as an opaque bar until the caret enters it. To an AI agent over MCP it is **redacted** — the interior never crosses the boundary; the agent sees `[spoiler]` and cannot search inside it. The same mark, treated differently by audience. Not access control (the agent holds the user's own credentials) — a context-hygiene default that keeps flagged text out of an LLM's window.
 _Avoid_: secret, redaction (that's what MCP does to it, not what it is), hidden block
 
+**Board**:
+A way of reading a zoomed node as columns of cards: its children are the columns, their children the cards. A view of the outline, not a copy: moving a card moves the node, and any outline change shows on the board. Contrast with Filter, which prunes rows; a board rearranges how they read.
+_Avoid_: kanban (fine in prose, but the view is "board"), board mode, swimlanes
+
 **Filter**:
 A query applied to the current view that prunes it to matches and their context. Purely a way of _looking_ at the outline: it changes nothing — not collapse state, not the caret's location, not where you are. Clearing it restores the exact prior view. Contrast with navigation (Cmd+K), which takes you somewhere.
 _Avoid_: search (that word implies going to a result; a filter stays put)

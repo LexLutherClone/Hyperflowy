@@ -8,6 +8,7 @@ import {
   Copy01Icon,
   File01Icon,
   FocusIcon,
+  KanbanIcon,
   Logout01Icon,
   Settings01Icon,
   ShieldCheckIcon,
@@ -26,6 +27,7 @@ import { openFeedbackReport } from "../data/feedback";
 import { flattenInline } from "../data/inline-text";
 import { outlineToMarkdown } from "../data/markdown";
 import { toggleBookmark, toggleCollapsed } from "../data/mutations";
+import { setNodeView, useNodeView } from "../data/node-views";
 import { exportOpml } from "../data/opml-export";
 import { runStructural } from "../data/structural";
 import { childrenOf } from "../data/tree";
@@ -176,6 +178,7 @@ export function HeaderViewMenu() {
   const { index } = useTree();
   const rootId = useParams({ strict: false }).nodeId ?? null;
   const current = rootId ? index.byId.get(rootId) : null;
+  const nodeView = useNodeView(rootId);
 
   return (
     <DropdownMenu title="View options">
@@ -201,6 +204,18 @@ export function HeaderViewMenu() {
           >
             <HugeiconsIcon icon={Bookmark01Icon} />
             Bookmark this page
+          </DropdownMenuCheckboxItem>
+        )}
+
+        {current && (
+          <DropdownMenuCheckboxItem
+            checked={nodeView === "board"}
+            onCheckedChange={(checked) =>
+              setNodeView(current.id, checked ? "board" : "list")
+            }
+          >
+            <HugeiconsIcon icon={KanbanIcon} />
+            Board view
           </DropdownMenuCheckboxItem>
         )}
 

@@ -183,6 +183,7 @@ const KV_COLLECTIONS = new Set([
   "changelog",
   "saved-queries",
   "account-prefs",
+  "node-views",
 ]);
 const ExternalEmbedsPreference = Schema.Struct({
   key: Schema.Literal("external-embeds"),
