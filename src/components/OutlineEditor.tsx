@@ -2105,6 +2105,7 @@ export function OutlineEditor({ rootId }: OutlineEditorProps) {
                 rootId={rootId}
                 isHidden={isHidden}
                 onToggleCompleted={commands.onToggleCompleted}
+                onTextChange={commands.onTextChange}
               />
             ) : noMatches &&
               renderedRows.length === 0 &&

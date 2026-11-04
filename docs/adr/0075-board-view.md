@@ -18,13 +18,24 @@ bullets.
   remember the choice on). Turning it off returns the same page to the list.
 - **Columns and cards.** Columns are the zoom root's children in sibling order;
   cards are each column's children. A card's own children stay inside it: the
-  card shows a count and opens the node (zoom) to edit them, exactly like a
-  row's zoom. Columns open the same way from their title.
+  card shows a count, and "Open" in its menu zooms into the node to work on
+  them. Columns open from their title.
+- **Edit a card in place.** Clicking (or tapping) a card's text edits it.
+  Enter saves, Shift+Enter adds a line break, Escape discards, and clicking
+  away saves. The edit is the node's text source (the raw markdown), and one
+  edit session is one undo step. Locked cards don't open the editor.
+- **Drag with mouse or touch.** A mouse press becomes a drag after a few
+  pixels of movement. On touch, hold a card still for a moment to pick it up;
+  moving sooner scrolls the board or the page instead. The lifted card follows
+  the pointer, a line marks the slot, and the board, an overflowing column,
+  and the page scroll at their edges.
 - **Two-way by construction.** Dragging a card between or within columns, or
   choosing "Move to" in its menu, is the outline's own `moveNode` inside one
   atomic structural write (ADR 0009) with one `"move"` undo point. "Add card"
   and "Add column" append a child with `appendChild`. Checking off a task card
-  runs the editor's completion command. Every outline change — local, from
+  runs the editor's completion command, and editing card text runs its text
+  command (`onTextChange`: lock guard, history, coalesced write). Every
+  outline change — local, from
   another device, from MCP or the CLI — re-renders the board through the tree
   store. There is no board state to reconcile.
 - **Same visibility as the list.** The board takes the view's composed Seam-G
@@ -61,30 +72,40 @@ around one feature (ADR 0001). The board lives beside Spotlight as a core view
 mode: `src/components/board-view.tsx`, with the pure layout and drop planning
 in `src/data/board.ts`.
 
-**Cards are not a fourth editable text surface.** "A node renders in three
-places" (docs/plugins.md) — each with its own keymap, decoration, caret, and
-echo handling (ADR 0010). A fourth would have to repeat all of it. Cards render
-the node's flattened text read-only; editing happens where it already works,
-one click away in the zoomed node. Revisit if in-place card editing becomes the
-main complaint, by reusing `MiniNodeEditor` rather than writing a new surface.
+**Card editing is a plain textarea over the text source, not a fourth rich
+surface.** "A node renders in three places" (docs/plugins.md), each with its
+own keymap, decoration, caret, and echo handling (ADR 0010). A fourth
+contentEditable would have to repeat all of it, and `MiniNodeEditor` is bound
+to quick-add's draft lifecycle. A textarea over the raw markdown needs none of
+it. It is uncontrolled while focused, so an echo of another write can't move
+the caret (the ADR 0010 hazard). It commits once, through the editor's own
+`onTextChange`, so the write gets the same lock guard, history capture, and
+serialized, coalesced PATCH as typing in a row. The trade: no `#` tag picker,
+`[[` link picker, or `/` menu on a card; "Open" reaches the full editor.
 
-**Native drag and drop plus a "Move to" menu.** The outline's row drag
-(`use-drag-reorder.ts`) is a pointer-driven vertical list projection; a 2-D
-board does not fit it. HTML drag and drop handles desktop with no new
-dependency. Native drag does not reach touch, the keyboard, or screen readers,
-so every card has a "Move to" menu listing the other columns; it appends to
-the end of the chosen column.
+**Pointer-driven drag for mouse and touch, plus a "Move to" menu.**
+`use-board-drag.ts` follows the row drag's touch contract
+(`use-drag-reorder.ts`): a 5px threshold for the mouse, a 350ms still hold for
+touch, a preinstalled non-passive `touchmove` listener that blocks native
+panning only once a drag owns the gesture (WebKit bug 185656), multi-touch and
+`pointercancel` abort, and the click after a drag is swallowed so a drop never
+also opens the editor. It shares no code with the row drag, whose projection is
+a 1-D list with depth; a board needs 2-D hit testing (`elementFromPoint` to a
+column, then the midpoint rule for the slot). HTML drag and drop was the first
+version and was replaced because it never reaches touch. Every card still has
+a "Move to" menu, the keyboard and screen-reader path.
 
 ## Not in v1
 
 - Reordering columns on the board (reorder the column rows in the list).
-- Touch dragging (use "Move to").
 - A board at Home, or a board of a filter's matches.
-- In-place card editing (see above).
+- Tag, link, and `/` pickers while editing a card (use "Open").
 
 ## Tests
 
 `src/data/board.test.ts` covers layout, prune, mirrors, and drop planning.
 `e2e/board-view.spec.ts` covers the menu toggle, a stored board, Move to,
-drag between columns, one-step undo, an external change arriving on the board,
-add card, task completion, and opening a card.
+mouse drag between columns, one-step undo, an external change arriving on the
+board, add card, task completion, opening a card, in-place editing (Enter,
+Escape, blur, undo), a drag that must not start an edit, and on a touch
+device: hold-to-drag, tap-to-edit, and swipe-to-scroll.

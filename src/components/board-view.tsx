@@ -1,11 +1,13 @@
 import {
+  ArrowUpRight01Icon,
   KanbanIcon,
   MoreHorizontalIcon,
+  PencilEdit02Icon,
   PlusSignIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useNavigate } from "@tanstack/react-router";
-import { type DragEvent, type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -35,26 +37,27 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import { type BoardDropTarget, useBoardDrag } from "./use-board-drag";
 
 /**
  * Board view (ADR 0075). Renders the zoom root's children as columns and their
  * children as cards. Every column and card is a real node: moving a card is the
  * outline's own `moveNode` inside one atomic structural write with an undo
- * point, adding a card is `appendChild`, and every outline edit re-renders the
- * board through the tree store. There is no board state to keep in sync.
+ * point, adding a card is `appendChild`, editing a card's text is the editor's
+ * own `onTextChange`, and every outline edit re-renders the board through the
+ * tree store. There is no board state to keep in sync.
  *
- * Cards are not a fourth editable text surface ("a node renders in three
- * places" -- docs/plugins.md): a card's title opens the node (zoom), where the
- * full editor, its tokens, keymaps, and history live. Tasks toggle in place
- * through the editor's own completion command.
+ * Card text edits as its TEXT SOURCE (raw markdown) in a plain textarea, not a
+ * fourth contentEditable surface ("a node renders in three places" --
+ * docs/plugins.md). One commit per edit session (Enter or blur) writes through
+ * `onTextChange`, so lock guards, history, and the coalesced PATCH all apply.
  *
- * Drag uses native HTML drag and drop (desktop). Every card also has a
- * "Move to" menu, the keyboard, screen-reader, and touch path.
+ * Drag is pointer-driven for mouse and touch (`use-board-drag.ts`). Every card
+ * also has a "Move to" menu, the keyboard and screen-reader path.
  */
-
-const CARD_MIME = "application/x-dotflowy-card";
 
 interface BoardViewProps {
   /** The zoomed instance id (route-owned). */
@@ -63,6 +66,19 @@ interface BoardViewProps {
   isHidden: (node: Node) => boolean;
   /** The editor's completion command (history, protection, transitions). */
   onToggleCompleted: (id: string, completed: boolean) => void;
+  /** The editor's text command (lock guard, history, coalesced write). */
+  onTextChange: (id: string, text: string) => void;
+}
+
+interface CardActions {
+  index: TreeIndex;
+  columns: BoardColumn[];
+  draggingId: string | null;
+  startDrag: ReturnType<typeof useBoardDrag>["startDrag"];
+  consumeClick: () => boolean;
+  onMoveTo: (cardId: string, columnId: string, at: number) => void;
+  onToggleCompleted: (id: string, completed: boolean) => void;
+  onTextChange: (id: string, text: string) => void;
 }
 
 function contentRule(): ResolveContent {
@@ -77,15 +93,14 @@ export function BoardView({
   rootId,
   isHidden,
   onToggleCompleted,
+  onTextChange,
 }: BoardViewProps) {
   const index = useTreeIndex();
   const resolve = contentRule();
   const root = index.byId.get(rootId);
   const rootContentId = root ? resolve(root) : rootId;
   const columns = buildBoard(index, rootContentId, isHidden, resolve);
-  const [dropAt, setDropAt] = useState<{ column: string; at: number } | null>(
-    null,
-  );
+  const boardRef = useRef<HTMLDivElement>(null);
 
   const moveCard = (cardId: string, columnId: string, at: number) => {
     const live = getTreeIndex();
@@ -111,29 +126,40 @@ export function BoardView({
     });
   };
 
+  const drag = useBoardDrag({
+    boardRef,
+    canDropIn: (columnId) => {
+      const live = getTreeIndex();
+      const column = live.byId.get(columnId);
+      return !!column && !isNodeLocked(live, resolve(column));
+    },
+    onDrop: moveCard,
+  });
+
+  const actions: CardActions = {
+    index,
+    columns,
+    draggingId: drag.draggingId,
+    startDrag: drag.startDrag,
+    consumeClick: drag.consumeClick,
+    onMoveTo: moveCard,
+    onToggleCompleted,
+    onTextChange,
+  };
+
   return (
     <div
+      ref={boardRef}
       data-board=""
       className="board -mx-2 flex items-start gap-3 overflow-x-auto px-2 pt-2 pb-6"
     >
       {columns.map((column) => (
         <BoardColumnView
           key={column.id}
-          index={index}
           column={column}
-          columns={columns}
-          dropAt={dropAt?.column === column.id ? dropAt.at : null}
-          onDragOverAt={(at) => setDropAt({ column: column.id, at })}
-          onDragLeave={() =>
-            setDropAt((prev) => (prev?.column === column.id ? null : prev))
-          }
-          onDrop={(cardId, at) => {
-            setDropAt(null);
-            moveCard(cardId, column.id, at);
-          }}
-          onMoveTo={moveCard}
+          target={drag.target?.column === column.id ? drag.target : null}
           onAdd={(text) => addChild(column.contentId, text)}
-          onToggleCompleted={onToggleCompleted}
+          actions={actions}
         />
       ))}
       <AddInline
@@ -155,52 +181,22 @@ export function BoardView({
 }
 
 function BoardColumnView({
-  index,
   column,
-  columns,
-  dropAt,
-  onDragOverAt,
-  onDragLeave,
-  onDrop,
-  onMoveTo,
+  target,
   onAdd,
-  onToggleCompleted,
+  actions,
 }: {
-  index: TreeIndex;
   column: BoardColumn;
-  columns: BoardColumn[];
-  dropAt: number | null;
-  onDragOverAt: (at: number) => void;
-  onDragLeave: () => void;
-  onDrop: (cardId: string, at: number) => void;
-  onMoveTo: (cardId: string, columnId: string, at: number) => void;
+  target: BoardDropTarget | null;
   onAdd: (text: string) => void;
-  onToggleCompleted: (id: string, completed: boolean) => void;
+  actions: CardActions;
 }) {
   const navigate = useNavigate();
-  const listRef = useRef<HTMLOListElement>(null);
+  const { index } = actions;
   const node = index.byId.get(column.contentId);
   const locked = isNodeLocked(index, column.contentId);
   const title = label(index, node) || "Untitled";
-
-  // Visible insertion index under the pointer: before the first card whose
-  // vertical midpoint is below it.
-  const indexAt = (clientY: number) => {
-    const cards = listRef.current?.querySelectorAll<HTMLElement>(
-      ":scope > [data-board-card]",
-    );
-    if (!cards) return 0;
-    let at = 0;
-    for (const el of cards) {
-      const rect = el.getBoundingClientRect();
-      if (clientY > rect.top + rect.height / 2) at += 1;
-      else break;
-    }
-    return at;
-  };
-
-  const accepts = (e: DragEvent) =>
-    !locked && e.dataTransfer.types.includes(CARD_MIME);
+  const dropAt = target?.at ?? null;
 
   return (
     <section
@@ -210,25 +206,6 @@ function BoardColumnView({
         "flex max-h-[75vh] w-72 shrink-0 flex-col rounded-lg bg-muted/50 p-2",
         dropAt !== null && "ring-2 ring-primary/40",
       )}
-      onDragOver={(e) => {
-        if (!accepts(e)) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        onDragOverAt(indexAt(e.clientY));
-      }}
-      onDragLeave={(e) => {
-        const next = e.relatedTarget;
-        if (
-          !(next instanceof globalThis.Node && e.currentTarget.contains(next))
-        )
-          onDragLeave();
-      }}
-      onDrop={(e) => {
-        if (!accepts(e)) return;
-        e.preventDefault();
-        const cardId = e.dataTransfer.getData(CARD_MIME);
-        if (cardId) onDrop(cardId, indexAt(e.clientY));
-      }}
     >
       <header className="flex items-center gap-2 px-1 pb-2">
         <button
@@ -244,17 +221,17 @@ function BoardColumnView({
           {column.cards.length}
         </span>
       </header>
-      <ol ref={listRef} className="flex min-h-8 flex-col gap-2 overflow-y-auto">
+      <ol
+        data-board-cards=""
+        className="flex min-h-8 flex-col gap-2 overflow-y-auto"
+      >
         {column.cards.map((card, i) => (
           <BoardCardView
             key={card.id}
-            index={index}
             card={card}
             column={column}
-            columns={columns}
             dropBefore={dropAt === i}
-            onMoveTo={onMoveTo}
-            onToggleCompleted={onToggleCompleted}
+            actions={actions}
           />
         ))}
         {dropAt !== null && dropAt >= column.cards.length && <DropLine />}
@@ -271,106 +248,204 @@ function BoardColumnView({
 }
 
 function BoardCardView({
-  index,
   card,
   column,
-  columns,
   dropBefore,
-  onMoveTo,
-  onToggleCompleted,
+  actions,
 }: {
-  index: TreeIndex;
   card: BoardCard;
   column: BoardColumn;
-  columns: BoardColumn[];
   dropBefore: boolean;
-  onMoveTo: (cardId: string, columnId: string, at: number) => void;
-  onToggleCompleted: (id: string, completed: boolean) => void;
+  actions: CardActions;
 }) {
   const navigate = useNavigate();
+  const [editing, setEditing] = useState(false);
+  const { index, columns } = actions;
   const node = index.byId.get(card.contentId);
   if (!node) return null;
   const text = label(index, node) || "Untitled";
   const childCount = childrenOf(index, card.contentId).length;
   const isTask = node.kind === null && node.isTask;
+  const locked = isNodeLocked(index, card.contentId);
   const others = columns.filter((c) => c.id !== column.id);
+  const open = () =>
+    void navigate({ to: "/$nodeId", params: { nodeId: card.id } });
 
   return (
     <>
       {dropBefore && <DropLine />}
       <li
         data-board-card={card.id}
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData(CARD_MIME, card.id);
-          e.dataTransfer.effectAllowed = "move";
+        data-dragging={actions.draggingId === card.id ? "" : undefined}
+        onPointerDown={(e) => {
+          if (!editing) actions.startDrag(card.id, e);
         }}
         className={cn(
-          "group flex cursor-grab items-start gap-2 rounded-md border bg-card p-2 text-sm shadow-xs active:cursor-grabbing",
-          node.completed && "opacity-60",
+          "board-card group flex items-start gap-2 rounded-md border bg-card p-2 text-sm shadow-xs",
+          !editing && "cursor-grab",
+          node.completed && !editing && "opacity-60",
         )}
       >
         {isTask && (
-          <Checkbox
-            className="checkbox mt-0.5 border-muted-foreground"
-            aria-label={node.completed ? "Mark not done" : "Mark done"}
-            checked={node.completed}
-            onCheckedChange={(checked) =>
-              onToggleCompleted(card.contentId, checked)
-            }
-          />
-        )}
-        <button
-          type="button"
-          className={cn(
-            "min-w-0 flex-1 text-left break-words hover:underline",
-            node.completed && "line-through",
-          )}
-          onClick={() =>
-            void navigate({ to: "/$nodeId", params: { nodeId: card.id } })
-          }
-        >
-          {text}
-          {childCount > 0 && (
-            <span className="ms-1.5 text-xs text-muted-foreground no-underline">
-              · {childCount}
-            </span>
-          )}
-        </button>
-        {others.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={`Move “${text}”`}
-                  className="opacity-60 group-hover:opacity-100 focus-visible:opacity-100"
-                >
-                  <HugeiconsIcon icon={MoreHorizontalIcon} />
-                </Button>
+          <span data-board-no-drag="" className="contents">
+            <Checkbox
+              className="checkbox mt-0.5 border-muted-foreground"
+              aria-label={node.completed ? "Mark not done" : "Mark done"}
+              checked={node.completed}
+              onCheckedChange={(checked) =>
+                actions.onToggleCompleted(card.contentId, checked)
               }
             />
-            <DropdownMenuContent align="end">
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>Move to</DropdownMenuLabel>
-                {others.map((target) => (
-                  <DropdownMenuItem
-                    key={target.id}
-                    onClick={() =>
-                      onMoveTo(card.id, target.id, target.cards.length)
-                    }
+          </span>
+        )}
+        {editing ? (
+          <CardTextEditor
+            source={node.text}
+            onCommit={(next) => {
+              setEditing(false);
+              if (next !== node.text)
+                actions.onTextChange(card.contentId, next);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : (
+          <button
+            type="button"
+            aria-label={locked ? text : `Edit “${text}”`}
+            className={cn(
+              "min-w-0 flex-1 text-left break-words select-none",
+              !locked && "hover:underline",
+              node.completed && "line-through",
+            )}
+            onClick={() => {
+              if (actions.consumeClick() || locked) return;
+              setEditing(true);
+            }}
+          >
+            {text}
+            {childCount > 0 && (
+              <span className="ms-1.5 text-xs text-muted-foreground no-underline">
+                · {childCount}
+              </span>
+            )}
+          </button>
+        )}
+        {!editing && (
+          <span data-board-no-drag="" className="contents">
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`Card actions for “${text}”`}
+                    className="opacity-60 group-hover:opacity-100 focus-visible:opacity-100"
                   >
-                    {label(index, index.byId.get(target.contentId)) ||
-                      "Untitled"}
+                    <HugeiconsIcon icon={MoreHorizontalIcon} />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={open}>
+                  <HugeiconsIcon icon={ArrowUpRight01Icon} />
+                  Open
+                </DropdownMenuItem>
+                {!locked && (
+                  <DropdownMenuItem onClick={() => setEditing(true)}>
+                    <HugeiconsIcon icon={PencilEdit02Icon} />
+                    Edit text
                   </DropdownMenuItem>
-                ))}
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                )}
+                {others.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>Move to</DropdownMenuLabel>
+                      {others.map((target) => (
+                        <DropdownMenuItem
+                          key={target.id}
+                          onClick={() =>
+                            actions.onMoveTo(
+                              card.id,
+                              target.id,
+                              target.cards.length,
+                            )
+                          }
+                        >
+                          {label(index, index.byId.get(target.contentId)) ||
+                            "Untitled"}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </span>
         )}
       </li>
     </>
+  );
+}
+
+/**
+ * Edits a card's text source. Uncontrolled after mount: the store is not
+ * repainted into it while it has focus, so an echo of another write can't move
+ * the caret (the ADR 0010 hazard). Enter commits, Shift+Enter is a newline,
+ * Escape discards, and blur commits.
+ */
+function CardTextEditor({
+  source,
+  onCommit,
+  onCancel,
+}: {
+  source: string;
+  onCommit: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const done = useRef(false);
+  const finish = (fn: () => void) => {
+    if (done.current) return;
+    done.current = true;
+    fn();
+  };
+  const fit = (el: HTMLTextAreaElement) => {
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  return (
+    <textarea
+      data-board-no-drag=""
+      aria-label="Card text"
+      // oxlint-disable-next-line jsx-a11y/no-autofocus -- opened by an explicit click
+      autoFocus
+      defaultValue={source}
+      rows={1}
+      ref={(el) => {
+        if (el) fit(el);
+      }}
+      onFocus={(e) => {
+        const el = e.currentTarget;
+        el.setSelectionRange(el.value.length, el.value.length);
+      }}
+      onInput={(e) => fit(e.currentTarget)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          e.preventDefault();
+          const value = e.currentTarget.value;
+          finish(() => onCommit(value));
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          finish(onCancel);
+        }
+      }}
+      onBlur={(e) => {
+        const value = e.currentTarget.value;
+        finish(() => onCommit(value));
+      }}
+      className="min-w-0 flex-1 resize-none overflow-hidden rounded-sm bg-transparent leading-snug outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    />
   );
 }
 
