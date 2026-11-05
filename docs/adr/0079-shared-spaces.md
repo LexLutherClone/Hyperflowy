@@ -21,8 +21,8 @@ editor, or admin.
   the boundary in either direction (ADR 0076's rule: nothing private rides into
   a share, and no mirror is orphaned). Copying instead of mirroring is
   ADR 0076 milestone 5.
-- **Roles** (`src/data/space-policy.ts`): viewer reads; commenter reads (and
-  comments, once ADR 0076 milestone 4 exists); editor changes content and
+- **Roles** (`src/data/space-policy.ts`): viewer reads; commenter reads and
+  comments ([ADR 0081](./0081-comments.md)); editor changes content and
   structure; admin also manages access. The owner is always an admin. A
   person's role is the highest of the grants reaching them: one to their
   verified email, one per group they're in.

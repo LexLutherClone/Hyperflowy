@@ -8,6 +8,7 @@ export default defineConfig({
     "workspaces.spec.ts",
     "spaces-api.spec.ts",
     "spaces-ui.spec.ts",
+    "comments.spec.ts",
   ],
   workers: 1,
   retries: 0,

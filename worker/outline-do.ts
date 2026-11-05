@@ -4,6 +4,12 @@ import { DurableObject } from "cloudflare:workers";
 import { Schema } from "effect";
 
 import type {
+  Comment,
+  CommentSummary,
+  CommentThread,
+  ThreadView,
+} from "../src/data/comments";
+import type {
   CalendarSyncState,
   ChangeFrame,
   ChangeOp,
@@ -329,6 +335,30 @@ export class UserOutlineDO extends DurableObject<Env> {
         sql.exec(
           `ALTER TABLE nodes ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`,
         );
+      },
+    },
+    {
+      // Comments on a shared note's bullets (ADR 0081): one thread per node.
+      // Personal outlines get the (empty) tables too; only spaces use them.
+      version: 7,
+      up: (sql) => {
+        sql.exec(`
+          CREATE TABLE comments (
+            id         TEXT PRIMARY KEY,
+            nodeId     TEXT NOT NULL,
+            authorId   TEXT NOT NULL,
+            authorName TEXT NOT NULL,
+            body       TEXT NOT NULL,
+            createdAt  INTEGER NOT NULL,
+            editedAt   INTEGER
+          );
+          CREATE INDEX idx_comments_node ON comments(nodeId, createdAt);
+          CREATE TABLE comment_threads (
+            nodeId     TEXT PRIMARY KEY,
+            resolvedAt INTEGER,
+            resolvedBy TEXT
+          );
+        `);
       },
     },
   ];
@@ -1514,6 +1544,94 @@ export class UserOutlineDO extends DurableObject<Env> {
     }, RESTORE_ABORT_DELAY_MS);
   }
 
+  // --- comments (ADR 0081) ----------------------------------------------------
+  // Plain storage: the Worker checks roles and authorship before calling.
+
+  /** A bullet's thread: its comments, oldest first, and resolution. */
+  listComments(nodeId: string): ThreadView {
+    const comments = this.readRows<Comment>(
+      "SELECT id, nodeId, authorId, authorName, body, createdAt, editedAt FROM comments WHERE nodeId = ? ORDER BY createdAt, id",
+      nodeId,
+    );
+    const thread = this.readRows<CommentThread>(
+      "SELECT nodeId, resolvedAt, resolvedBy FROM comment_threads WHERE nodeId = ?",
+      nodeId,
+    )[0] ?? { nodeId, resolvedAt: null, resolvedBy: null };
+    return { comments, thread };
+  }
+
+  /** Every bullet with comments: how many, and whether resolved. */
+  commentSummary(): CommentSummary[] {
+    return this.readRows<{ nodeId: string; count: number; resolved: number }>(
+      `SELECT c.nodeId, COUNT(*) AS count,
+         CASE WHEN t.resolvedAt IS NULL THEN 0 ELSE 1 END AS resolved
+       FROM comments c LEFT JOIN comment_threads t ON t.nodeId = c.nodeId
+       GROUP BY c.nodeId`,
+    ).map((r) => ({
+      nodeId: r.nodeId,
+      count: r.count,
+      resolved: r.resolved === 1,
+    }));
+  }
+
+  getComment(id: string): Comment | null {
+    return (
+      this.readRows<Comment>(
+        "SELECT id, nodeId, authorId, authorName, body, createdAt, editedAt FROM comments WHERE id = ?",
+        id,
+      )[0] ?? null
+    );
+  }
+
+  /** Add a comment. Commenting on a resolved thread reopens it. */
+  addComment(comment: Comment): void {
+    this.assertWritable();
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec(
+        "INSERT INTO comments (id, nodeId, authorId, authorName, body, createdAt, editedAt) VALUES (?, ?, ?, ?, ?, ?, NULL)",
+        comment.id,
+        comment.nodeId,
+        comment.authorId,
+        comment.authorName,
+        comment.body,
+        comment.createdAt,
+      );
+      this.sql.exec(
+        "DELETE FROM comment_threads WHERE nodeId = ?",
+        comment.nodeId,
+      );
+    });
+  }
+
+  editComment(id: string, body: string, at: number): void {
+    this.assertWritable();
+    this.sql.exec(
+      "UPDATE comments SET body = ?, editedAt = ? WHERE id = ?",
+      body,
+      at,
+      id,
+    );
+  }
+
+  deleteComment(id: string): void {
+    this.assertWritable();
+    this.sql.exec("DELETE FROM comments WHERE id = ?", id);
+  }
+
+  /** Resolve (`by` set) or reopen (`by` null) a bullet's thread. */
+  setThreadResolved(nodeId: string, by: string | null, at: number): void {
+    this.assertWritable();
+    if (by === null)
+      this.sql.exec("DELETE FROM comment_threads WHERE nodeId = ?", nodeId);
+    else
+      this.sql.exec(
+        "INSERT INTO comment_threads (nodeId, resolvedAt, resolvedBy) VALUES (?, ?, ?) ON CONFLICT(nodeId) DO UPDATE SET resolvedAt = excluded.resolvedAt, resolvedBy = excluded.resolvedBy",
+        nodeId,
+        at,
+        by,
+      );
+  }
+
   // --- off-site backup: R2 export / snapshot restore (ticket #221) -----------
 
   /**
@@ -1531,6 +1649,13 @@ export class UserOutlineDO extends DurableObject<Env> {
       nodes: this.getNodes(),
       kv: this.readRows<SnapshotKvRow>(
         "SELECT collection, key, value, updatedAt FROM kv",
+      ),
+      // Comments ride the same snapshot (ADR 0081); absent in older ones.
+      comments: this.readRows<Comment>(
+        "SELECT id, nodeId, authorId, authorName, body, createdAt, editedAt FROM comments",
+      ),
+      commentThreads: this.readRows<CommentThread>(
+        "SELECT nodeId, resolvedAt, resolvedBy FROM comment_threads",
       ),
     };
   }
@@ -1556,6 +1681,8 @@ export class UserOutlineDO extends DurableObject<Env> {
   async restoreSnapshot(data: {
     nodes: readonly Node[];
     kv: readonly SnapshotKvRow[];
+    comments?: readonly Comment[];
+    commentThreads?: readonly CommentThread[];
   }): Promise<{ previousBookmark: string | null; nodes: number; kv: number }> {
     const previousBookmark = await this.ctx.blockConcurrencyWhile(async () => {
       this.assertWritable();
@@ -1575,6 +1702,31 @@ export class UserOutlineDO extends DurableObject<Env> {
         this.sql.exec("DELETE FROM nodes");
         this.sql.exec("DELETE FROM kv");
         this.sql.exec("DELETE FROM changelog");
+        // A snapshot from before comments existed leaves them as they are.
+        if (data.comments) {
+          this.sql.exec("DELETE FROM comments");
+          for (const c of data.comments)
+            this.sql.exec(
+              "INSERT INTO comments (id, nodeId, authorId, authorName, body, createdAt, editedAt) VALUES (?, ?, ?, ?, ?, ?, ?)",
+              c.id,
+              c.nodeId,
+              c.authorId,
+              c.authorName,
+              c.body,
+              c.createdAt,
+              c.editedAt,
+            );
+        }
+        if (data.commentThreads) {
+          this.sql.exec("DELETE FROM comment_threads");
+          for (const t of data.commentThreads)
+            this.sql.exec(
+              "INSERT INTO comment_threads (nodeId, resolvedAt, resolvedBy) VALUES (?, ?, ?)",
+              t.nodeId,
+              t.resolvedAt,
+              t.resolvedBy,
+            );
+        }
         for (const n of data.nodes) this.putNode(n);
         for (const r of data.kv) {
           this.sql.exec(

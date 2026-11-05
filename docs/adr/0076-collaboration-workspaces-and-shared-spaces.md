@@ -90,8 +90,8 @@ the object count outgrows one cron invocation's subrequest budget.
    ([ADR 0080](./0080-inline-shared-note-previews.md)). Still to do: several
    sync streams in one tree for inline editing, cross-space moves,
    permission-aware search, backlinks, export, MCP, CLI.
-4. **Comments and the Commenter role.** Comment threads on nodes, mentions,
-   notifications through `worker/email.ts`.
+4. **Comments and the Commenter role.** Done:
+   [ADR 0081](./0081-comments.md). Mentions and notifications are next.
 5. **Mirrors across spaces.** (space, node) mirrors, the refusal rule, and the
    selective-copy dialog.
 6. **Swap.** Move a mirror's source into a shared space, leaving a mirror

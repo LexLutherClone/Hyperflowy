@@ -10,6 +10,7 @@
 
 import { Effect, Schema } from "effect";
 
+import { CommentSchema, CommentThreadSchema } from "../src/data/comments";
 import { NodeSchema } from "../src/data/wire-schema";
 
 /** Bump when the snapshot shape changes; the restore path refuses a version it
@@ -45,6 +46,11 @@ const SnapshotFields = {
   exportedAt: Schema.Number,
   seq: Schema.Number,
   kv: Schema.Array(SnapshotKvRowSchema),
+  // Comments on a shared note's bullets (ADR 0081). Optional: snapshots
+  // written before comments existed have neither field, and restoring one
+  // leaves the current comments untouched.
+  comments: Schema.optional(Schema.Array(CommentSchema)),
+  commentThreads: Schema.optional(Schema.Array(CommentThreadSchema)),
 };
 
 const CurrentOutlineSnapshotSchema = Schema.Struct({

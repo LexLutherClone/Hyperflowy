@@ -4,8 +4,7 @@
  *
  * Each role includes the one before it:
  * - **viewer** reads the subtree;
- * - **commenter** reads and, once comments exist (ADR 0076 milestone 4),
- *   comments; until then it can do exactly what a viewer can;
+ * - **commenter** reads and comments (ADR 0081), but can't change content;
  * - **editor** changes content and structure;
  * - **admin** also manages who has access. The owner is always an admin.
  *

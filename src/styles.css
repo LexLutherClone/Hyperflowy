@@ -1130,6 +1130,22 @@ body.dragging-active * {
   }
 }
 
+/* Comments (ADR 0081): the "add a comment" affordance shows on the row being
+   pointed at or focused, and stays faintly visible where there's no hover. */
+.comment-add {
+  opacity: 0;
+}
+.outline-row:hover .comment-add,
+.outline-row:focus-within .comment-add,
+.comment-add:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .comment-add {
+    opacity: 0.5;
+  }
+}
+
 /* The card that follows the pointer while dragging. */
 .board-drag-ghost {
   position: fixed;

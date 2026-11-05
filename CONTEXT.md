@@ -76,6 +76,10 @@ _Avoid_: kanban (fine in prose, but the view is "board"), board mode, swimlanes
 A bullet and everything under it, shared with people or workspace groups, each with a role: can view, can comment, can edit, or admin. It lives in its own space, opened at its own address; the owner's outline keeps the bullet as a link to it. Internally a "space".
 _Avoid_: shared list, shared page (a page is a zoomed view), collaboration
 
+**Comment**:
+A remark on one bullet of a shared note, in that bullet's thread. A thread can be resolved (done, still readable) and reopens when someone comments again. Not part of the bullet's text.
+_Avoid_: note (a note is the outline), annotation, reply
+
 **Workspace**:
 A team: people with a workspace role (owner, admin, member) and named groups of them, used to share notes with several people at once. Holds no notes itself.
 _Avoid_: organization, team space, org

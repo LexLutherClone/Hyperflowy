@@ -52,6 +52,7 @@ import {
   isSupportedSnapshotVersion,
 } from "./backup";
 import { handleCaptureKeys, handleCaptureRequest } from "./capture";
+import { handleComments } from "./comments";
 import { lookupEmbedE } from "./embeds";
 import { withFramePolicy } from "./frame-policy";
 import {
@@ -1060,6 +1061,9 @@ function handleApiRequest(
         snapshotStub.restoreSnapshot({
           nodes: snapshot.nodes,
           kv: snapshot.kv,
+          // Comments restore with the snapshot when it carries them (ADR 0081).
+          comments: snapshot.comments,
+          commentThreads: snapshot.commentThreads,
         }),
       );
       return json({ key, ...result });
@@ -1279,9 +1283,10 @@ function handleApiRequest(
     // as a personal outline, against the space's own Durable Object, after a
     // role check on every request: reading needs any role, writing needs
     // editor. The DO trusts the Worker (ADR 0014), so this IS the boundary.
-    const spaceData = /^\/api\/spaces\/([^/]+)\/(sync|nodes|kv)$/.exec(
-      url.pathname,
-    );
+    const spaceData =
+      /^\/api\/spaces\/([^/]+)\/(sync|nodes|kv|comments)((?:\/[^/]+)*)$/.exec(
+        url.pathname,
+      );
     if (spaceData) {
       const spaceId = decodeURIComponent(spaceData[1]!);
       const surface = spaceData[2]!;
@@ -1294,7 +1299,29 @@ function handleApiRequest(
           getSpace(env.DB, spaceId),
         ]),
       );
-      if (!canRead(role) || !space) return json({ error: "not_found" }, 404);
+      if (role === null || !canRead(role) || !space)
+        return json({ error: "not_found" }, 404);
+      const stubFor = () =>
+        env.USER_OUTLINE.get(
+          env.USER_OUTLINE.idFromName(spaceObjectName(spaceId)),
+        );
+      // Comments have their own rules: commenters write (ADR 0081).
+      if (surface === "comments")
+        return yield* handleComments(
+          request,
+          env,
+          {
+            userId: session.user.id,
+            name: session.user.name || session.user.email,
+            role,
+            space: stubFor(),
+          },
+          (spaceData[3] ?? "")
+            .split("/")
+            .filter(Boolean)
+            .map((s) => decodeURIComponent(s)),
+        );
+      if (spaceData[3]) return json({ error: "not_found" }, 404);
       const writes = request.method !== "GET";
       if (writes && !canEdit(role))
         return json(
@@ -1304,9 +1331,7 @@ function handleApiRequest(
           },
           403,
         );
-      const stub = env.USER_OUTLINE.get(
-        env.USER_OUTLINE.idFromName(spaceObjectName(spaceId)),
-      );
+      const stub = stubFor();
       if (surface === "sync") {
         if (request.headers.get("Upgrade") !== "websocket")
           return yield* Effect.fail(new UpgradeRequired());

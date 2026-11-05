@@ -9,6 +9,7 @@ import type { EditorFeature } from "../data/editor-features";
 import type { PluginDef } from "./types";
 
 import code from "./code";
+import comments from "./comments";
 import daily from "./daily";
 import embeds from "./embeds";
 import emphasis from "./emphasis";
@@ -35,6 +36,7 @@ export const plugins: PluginDef[] = [
   links,
   embeds,
   sharedNotes,
+  comments,
   nodeLinks,
   routeBible,
   tags,
