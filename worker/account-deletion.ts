@@ -10,6 +10,7 @@
 import Stripe from "stripe";
 
 import { normalizeEmail } from "./invites";
+import { spaceGrantDeletionStatements } from "./spaces-store";
 import { workspaceDeletionStatements } from "./workspaces-store";
 
 /**
@@ -189,5 +190,7 @@ export function deleteResidualUserRows(
     db.prepare("DELETE FROM invites WHERE email = ?").bind(normalized),
     // Hand off owned workspaces and leave the rest (ADR 0078).
     ...workspaceDeletionStatements(db, userId, email),
+    // Shared-space grants addressed to them (ADR 0079).
+    ...spaceGrantDeletionStatements(db, email),
   ]);
 }

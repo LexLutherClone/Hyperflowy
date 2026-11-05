@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import { Data, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import {
   canChangeRole,
@@ -12,6 +12,14 @@ import {
   GROUP_NAME_MAX,
   WORKSPACE_NAME_MAX,
 } from "../src/data/workspace-policy";
+import {
+  decodeBody,
+  EMAIL,
+  fail,
+  json,
+  sameOrigin,
+  segments,
+} from "./api-http";
 import * as store from "./workspaces-store";
 
 /**
@@ -33,6 +41,10 @@ interface WorkspacesEnv {
   WORKSPACE_LIMIT: RateLimit;
   BETTER_AUTH_URL?: string;
   BETTER_AUTH_TRUSTED_ORIGINS?: string;
+  /** Shared spaces granted to this workspace's groups (ADR 0079). */
+  spacesForWorkspace?: (workspaceId: string) => Promise<string[]>;
+  /** Close those spaces' live connections so each reconnect re-checks access. */
+  resetSpaceConnections?: (spaceIds: string[]) => Promise<void>;
 }
 
 export interface WorkspaceActor {
@@ -42,24 +54,9 @@ export interface WorkspaceActor {
   verifiedEmail: string | null;
 }
 
-class WorkspaceHttpError extends Data.TaggedError("WorkspaceHttpError")<{
-  status: number;
-  error: string;
-  message: string;
-}> {}
-
-const fail = (status: number, error: string, message: string) =>
-  new WorkspaceHttpError({ status, error, message });
 const notFound = () =>
   fail(404, "not_found", "That workspace doesn't exist or you're not in it.");
 const forbidden = (message: string) => fail(403, "forbidden", message);
-
-function json<T>(value: T, status = 200) {
-  return Response.json(value, {
-    status,
-    headers: { "cache-control": "no-store" },
-  });
-}
 
 const Grantable = Schema.Literals(["admin", "member"]);
 const NameBody = Schema.Struct({ name: Schema.String });
@@ -69,58 +66,7 @@ const GroupMembersBody = Schema.Struct({
   userIds: Schema.Array(Schema.String),
 });
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MAX_BODY = 16_384;
 const MAX_GROUP_MEMBERS = 1000;
-
-const decodeBody = <S extends Schema.Top>(request: Request, schema: S) =>
-  Effect.gen(function* () {
-    if (
-      !/^application\/json(?:;|$)/i.test(
-        request.headers.get("content-type") ?? "",
-      )
-    )
-      return yield* Effect.fail(
-        fail(415, "invalid_content_type", "Send JSON."),
-      );
-    const text = yield* Effect.tryPromise({
-      try: async () => {
-        const reader = request.body?.getReader();
-        if (!reader) return "";
-        let length = 0;
-        let text = "";
-        const decoder = new TextDecoder();
-        try {
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            length += value.byteLength;
-            if (length > MAX_BODY)
-              throw fail(413, "input_too_large", "The request is too large.");
-            text += decoder.decode(value, { stream: true });
-          }
-          return text + decoder.decode();
-        } finally {
-          await reader.cancel();
-        }
-      },
-      catch: (error) =>
-        error instanceof WorkspaceHttpError
-          ? error
-          : fail(400, "invalid_body", "Couldn't read the request."),
-    });
-    const raw = yield* Effect.try({
-      try: () => JSON.parse(text),
-      catch: () => fail(400, "invalid_body", "Send a valid JSON body."),
-    });
-    return yield* Schema.decodeUnknownEffect(schema, {
-      onExcessProperty: "error",
-    })(raw).pipe(
-      Effect.mapError(() =>
-        fail(400, "invalid_input", "Check the request and try again."),
-      ),
-    );
-  });
 
 const name = (raw: string, max: number, what: string) =>
   Effect.gen(function* () {
@@ -136,29 +82,21 @@ const name = (raw: string, max: number, what: string) =>
     return clean;
   });
 
-function sameOrigin(request: Request, env: WorkspacesEnv): boolean {
-  const origins = new Set([
-    new URL(request.url).origin,
-    ...(env.BETTER_AUTH_URL ? [new URL(env.BETTER_AUTH_URL).origin] : []),
-    ...(env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",").map((o) => o.trim()) ?? []),
-  ]);
-  return origins.has(request.headers.get("origin") ?? "");
-}
-
-/** `/api/workspaces/...` and `/api/workspace-invites/...` path segments. */
-function segments(pathname: string): string[] {
-  return pathname
-    .split("/")
-    .filter(Boolean)
-    .slice(1)
-    .map((s) => decodeURIComponent(s));
-}
-
 export const handleWorkspaces = Effect.fn("Workspaces.handle")(
   (request: Request, env: WorkspacesEnv, actor: WorkspaceActor) =>
     Effect.gen(function* () {
       const method = request.method;
       const db = env.DB;
+      // A change that can take someone out of a group: find the spaces those
+      // groups reach first (a deletion removes the evidence), then, once the
+      // change has committed, make their connections re-check access.
+      const revoking = <A>(workspaceId: string, change: () => Promise<A>) =>
+        Effect.promise(async () => {
+          const spaces = (await env.spacesForWorkspace?.(workspaceId)) ?? [];
+          const result = await change();
+          if (spaces.length) await env.resetSpaceConnections?.(spaces);
+          return result;
+        });
       const now = Date.now();
       const [root, workspaceId, sub, subId, leaf] = segments(
         new URL(request.url).pathname,
@@ -283,7 +221,9 @@ export const handleWorkspaces = Effect.fn("Workspaces.handle")(
             return yield* Effect.fail(
               forbidden("Only the owner can delete the workspace."),
             );
-          yield* Effect.promise(() => store.deleteWorkspace(db, workspaceId));
+          yield* revoking(workspaceId, () =>
+            store.deleteWorkspace(db, workspaceId),
+          );
           return json({ deleted: true });
         }
         return json({ error: "method_not_allowed" }, 405);
@@ -357,7 +297,7 @@ export const handleWorkspaces = Effect.fn("Workspaces.handle")(
                   : "You can't remove that person.",
               ),
             );
-          yield* Effect.promise(() =>
+          yield* revoking(workspaceId, () =>
             store.removeMember(db, workspaceId, subId),
           );
           return json({ removed: true });
@@ -396,7 +336,7 @@ export const handleWorkspaces = Effect.fn("Workspaces.handle")(
             return json({ name: clean });
           }
           if (method === "DELETE") {
-            yield* Effect.promise(() =>
+            yield* revoking(workspaceId, () =>
               store.deleteGroup(db, workspaceId, subId),
             );
             return json({ deleted: true });
@@ -408,7 +348,7 @@ export const handleWorkspaces = Effect.fn("Workspaces.handle")(
             return yield* Effect.fail(
               fail(400, "too_many", "That group is too large."),
             );
-          const ok = yield* Effect.promise(() =>
+          const ok = yield* revoking(workspaceId, () =>
             store.setGroupMembers(db, workspaceId, subId, input.userIds),
           );
           if (!ok)
@@ -422,7 +362,7 @@ export const handleWorkspaces = Effect.fn("Workspaces.handle")(
 
       return json({ error: "not_found" }, 404);
     }).pipe(
-      Effect.catchTag("WorkspaceHttpError", (error) =>
+      Effect.catchTag("ApiHttpError", (error) =>
         Effect.succeed(
           json({ error: error.error, message: error.message }, error.status),
         ),

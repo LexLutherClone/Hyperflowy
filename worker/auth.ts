@@ -33,6 +33,7 @@ import { isSignupOpen, matchesSharedInviteCode } from "./identity";
 import { isRedeemableInvite, normalizeEmail, redeemInvite } from "./invites";
 import { wipeLunoraUserShard } from "./lunora-mcp-store";
 import { FOUNDING_SEAT_LIMIT, countFoundingSeats } from "./plan";
+import { releaseOwnedSpaces } from "./spaces";
 
 /** Any undecoded JSON request-body field as the auth hooks see it (Better Auth
  *  parses the body only after this gate runs). */
@@ -266,6 +267,9 @@ export function createAuth(
             env.USER_OUTLINE.idFromName(user.id),
           );
           await stub.wipe();
+          // Shared spaces it owns pass to a collaborator, or are wiped when
+          // nobody can inherit them (ADR 0079). Throws abort the deletion.
+          await releaseOwnedSpaces(env, user.id);
           // Lunora shard (ADR 0058): same Better Auth user.id the browser/MCP
           // mutators use — NOT resolveUserId / 'default'. Throws on RPC failure
           // so deletion aborts before identity rows vanish (ADR 0051 posture).

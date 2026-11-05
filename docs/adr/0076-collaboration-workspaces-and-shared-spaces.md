@@ -83,9 +83,9 @@ the object count outgrows one cron invocation's subrequest budget.
 0. **Concurrent text merge.** Done: [ADR 0077](./0077-concurrent-text-merge.md).
 1. **Workspaces and groups.** Done:
    [ADR 0078](./0078-workspaces-and-groups.md).
-2. **Shared spaces.** `SpaceDO`, share a node with people or groups as Viewer,
-   Editor, or Admin, mount points, role enforcement, revocation, per-space
-   backups.
+2. **Shared spaces.** Server half done:
+   [ADR 0079](./0079-shared-spaces.md). The app's space view and share dialog
+   are next.
 3. **Multi-space client.** Several sync streams in one tree, cross-space moves,
    read-only rendering, permission-aware search, backlinks, export, MCP, CLI.
 4. **Comments and the Commenter role.** Comment threads on nodes, mentions,
@@ -106,5 +106,5 @@ Defaults in effect until the owner decides (2026-11-04, "proceed"):
   the workspace keeps its groups. For spaces (milestone 2), a space owned by a
   workspace stays with the workspace. When an owning account is deleted,
   ownership passes to the longest-standing admin, else member (ADR 0078).
-- **Can a space be shared beyond its workspace?** Undecided; settled with
-  milestone 2.
+- **Can a space be shared beyond its workspace?** Yes, with any account by
+  email; groups only from workspaces the sharer belongs to (ADR 0079).

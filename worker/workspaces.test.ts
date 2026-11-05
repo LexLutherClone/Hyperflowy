@@ -64,7 +64,10 @@ async function call(
 
 beforeEach(() => {
   allow = true;
-  env = sqliteD1(["migrations/0015_create_workspaces.sql"]);
+  env = sqliteD1([
+    "migrations/0015_create_workspaces.sql",
+    "migrations/0016_create_spaces.sql",
+  ]);
   env.sqlite.exec(
     `CREATE TABLE "user" (id TEXT PRIMARY KEY, name TEXT, email TEXT)`,
   );

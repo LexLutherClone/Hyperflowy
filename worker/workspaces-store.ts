@@ -206,7 +206,13 @@ export async function deleteWorkspace(
   workspaceId: string,
 ): Promise<void> {
   // Children first, so this holds whether or not D1 enforces the cascades.
+  // Shared-space grants to its groups go too (ADR 0079).
   await db.batch([
+    db
+      .prepare(
+        "DELETE FROM space_grants WHERE granteeType = 'group' AND granteeId IN (SELECT id FROM workspace_groups WHERE workspaceId = ?)",
+      )
+      .bind(workspaceId),
     db
       .prepare(
         "DELETE FROM workspace_group_members WHERE groupId IN (SELECT id FROM workspace_groups WHERE workspaceId = ?)",
@@ -372,7 +378,12 @@ export async function deleteGroup(
   workspaceId: string,
   groupId: string,
 ): Promise<boolean> {
-  const [, removed] = await db.batch([
+  const [, , removed] = await db.batch([
+    db
+      .prepare(
+        "DELETE FROM space_grants WHERE granteeType = 'group' AND granteeId IN (SELECT id FROM workspace_groups WHERE id = ? AND workspaceId = ?)",
+      )
+      .bind(groupId, workspaceId),
     db
       .prepare(
         "DELETE FROM workspace_group_members WHERE groupId IN (SELECT id FROM workspace_groups WHERE id = ? AND workspaceId = ?)",
@@ -435,6 +446,8 @@ export function workspaceDeletionStatements(
     ...[
       `DELETE FROM workspace_group_members WHERE groupId IN
          (SELECT id FROM workspace_groups WHERE workspaceId IN (${alone}))`,
+      `DELETE FROM space_grants WHERE granteeType = 'group' AND granteeId IN
+         (SELECT id FROM workspace_groups WHERE workspaceId IN (${alone}))`,
       `DELETE FROM workspace_groups WHERE workspaceId IN (${alone})`,
       `DELETE FROM workspace_invites WHERE workspaceId IN (${alone})`,
       `DELETE FROM workspaces WHERE id IN (${alone})`,
@@ -458,4 +471,20 @@ export function workspaceDeletionStatements(
       .prepare("DELETE FROM workspace_invites WHERE email = ?")
       .bind(normalizeEmail(email)),
   ];
+}
+
+/** Shared spaces with a grant to any group of this workspace (ADR 0079). */
+export async function spacesGrantedToWorkspace(
+  db: D1Database,
+  workspaceId: string,
+): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT DISTINCT g.spaceId FROM space_grants g
+       JOIN workspace_groups wg ON g.granteeType = 'group' AND wg.id = g.granteeId
+       WHERE wg.workspaceId = ? ORDER BY g.spaceId`,
+    )
+    .bind(workspaceId)
+    .all<{ spaceId: string }>();
+  return results.map((r) => r.spaceId);
 }

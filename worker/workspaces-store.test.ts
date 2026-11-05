@@ -21,7 +21,10 @@ import {
 let env: ReturnType<typeof sqliteD1>;
 
 beforeEach(() => {
-  env = sqliteD1(["migrations/0015_create_workspaces.sql"]);
+  env = sqliteD1([
+    "migrations/0015_create_workspaces.sql",
+    "migrations/0016_create_spaces.sql",
+  ]);
   // The slice of Better Auth's user table the store joins for names/emails.
   env.sqlite.exec(
     `CREATE TABLE "user" (id TEXT PRIMARY KEY, name TEXT, email TEXT)`,

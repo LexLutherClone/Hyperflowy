@@ -35,6 +35,7 @@ import { Data, Effect, Schema } from "effect";
 import type { KvClaim, WeekStartMigrationResult } from "./outline-do";
 import type { Node } from "./wire";
 
+import { canEdit, canRead } from "../src/data/space-policy";
 import {
   pendingAnnounceEmails,
   sendAnnouncements,
@@ -81,6 +82,13 @@ import { UserOutlineDO as BaseUserOutlineDO } from "./outline-do";
 import { FREE_NODE_LIMIT, getPlan, nodeLimitForPlan } from "./plan";
 import { resolveRestorePoint } from "./restore";
 import { workerSentryOptions } from "./sentry";
+import { handleSpaces, spaceStub } from "./spaces";
+import {
+  allSpaceIds,
+  getSpace,
+  roleFor,
+  spaceObjectName,
+} from "./spaces-store";
 import { isHttpUrlString, rateLimitedTitleE, unfurlTitleE } from "./unfurl";
 import { unfurlTextE } from "./unfurl-text";
 import {
@@ -99,6 +107,7 @@ import {
   WeekStartPostBody,
 } from "./wire";
 import { handleWorkspaces } from "./workspaces";
+import { spacesGrantedToWorkspace } from "./workspaces-store";
 
 // Re-export the DO class so the Workers runtime can instantiate it (the
 // wrangler `durable_objects` binding resolves `UserOutlineDO` from the entry).
@@ -1247,9 +1256,79 @@ function handleApiRequest(
       url.pathname.startsWith("/api/workspaces/") ||
       url.pathname.startsWith("/api/workspace-invites/")
     ) {
-      return yield* handleWorkspaces(request, env, {
+      return yield* handleWorkspaces(
+        request,
+        {
+          ...env,
+          spacesForWorkspace: (workspaceId) =>
+            spacesGrantedToWorkspace(env.DB, workspaceId),
+          resetSpaceConnections: async (spaceIds) => {
+            await Promise.all(
+              spaceIds.map((id) => spaceStub(env, id).disconnectAll()),
+            );
+          },
+        },
+        {
+          userId: session.user.id,
+          verifiedEmail: session.user.emailVerified ? session.user.email : null,
+        },
+      );
+    }
+
+    // Shared spaces (ADR 0079). A space's content runs on the same endpoints
+    // as a personal outline, against the space's own Durable Object, after a
+    // role check on every request: reading needs any role, writing needs
+    // editor. The DO trusts the Worker (ADR 0014), so this IS the boundary.
+    const spaceData = /^\/api\/spaces\/([^/]+)\/(sync|nodes|kv)$/.exec(
+      url.pathname,
+    );
+    if (spaceData) {
+      const spaceId = decodeURIComponent(spaceData[1]!);
+      const surface = spaceData[2]!;
+      const verifiedEmail = session.user.emailVerified
+        ? session.user.email
+        : null;
+      const [role, space] = yield* Effect.promise(() =>
+        Promise.all([
+          roleFor(env.DB, spaceId, session.user.id, verifiedEmail),
+          getSpace(env.DB, spaceId),
+        ]),
+      );
+      if (!canRead(role) || !space) return json({ error: "not_found" }, 404);
+      const writes = request.method !== "GET";
+      if (writes && !canEdit(role))
+        return json(
+          {
+            error: "read_only",
+            message: "You can view this shared note but not change it.",
+          },
+          403,
+        );
+      const stub = env.USER_OUTLINE.get(
+        env.USER_OUTLINE.idFromName(spaceObjectName(spaceId)),
+      );
+      if (surface === "sync") {
+        if (request.headers.get("Upgrade") !== "websocket")
+          return yield* Effect.fail(new UpgradeRequired());
+        return yield* Effect.promise(() => stub.fetch(request));
+      }
+      // The node limit follows the space owner's plan, not the visitor's.
+      if (surface === "nodes")
+        return yield* handleNodes(request, stub, env, space.ownerId);
+      const collection = url.searchParams.get("collection");
+      if (!collection || !KV_COLLECTIONS.has(collection))
+        return yield* Effect.fail(new UnknownCollection({ collection }));
+      return yield* handleKv(request, stub, collection);
+    }
+
+    if (
+      url.pathname === "/api/spaces" ||
+      url.pathname.startsWith("/api/spaces/")
+    ) {
+      return yield* handleSpaces(request, env, {
         userId: session.user.id,
         verifiedEmail: session.user.emailVerified ? session.user.email : null,
+        outline: env.USER_OUTLINE.get(env.USER_OUTLINE.idFromName(userId)),
       });
     }
 
@@ -1364,10 +1443,15 @@ async function runBackupSweep(env: Env, now: number): Promise<void> {
   const { results } = await env.DB.prepare('SELECT id FROM "user"').all<{
     id: string;
   }>();
-  const targets = backupTargets(
-    results.map((r) => r.id),
-    (id) => resolveUserId(id, env),
-  );
+  // Shared spaces are outlines too (ADR 0079): one snapshot per space DO.
+  const spaceNames = (await allSpaceIds(env.DB)).map(spaceObjectName);
+  const targets = [
+    ...backupTargets(
+      results.map((r) => r.id),
+      (id) => resolveUserId(id, env),
+    ),
+    ...spaceNames,
+  ];
   let failed = 0;
   for (const doName of targets) {
     try {

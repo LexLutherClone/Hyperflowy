@@ -1181,6 +1181,24 @@ export class UserOutlineDO extends DurableObject<Env> {
     ws.send(JSON.stringify(this.initialFrame(hello.since)));
   }
 
+  /**
+   * Close every live connection (ADR 0079). A shared space calls this after
+   * access is revoked: each client reconnects through the Worker, which checks
+   * its role again, so only people who still have access come back. Code 4001
+   * is an ordinary reconnect for the client's sync supervisor.
+   */
+  disconnectAll(): number {
+    const sockets = this.ctx.getWebSockets();
+    for (const ws of sockets) {
+      try {
+        ws.close(4001, "access changed");
+      } catch {
+        // already closed
+      }
+    }
+    return sockets.length;
+  }
+
   /** Complete the closing handshake (CF best practice for Hibernation). */
   async webSocketClose(
     ws: WebSocket,

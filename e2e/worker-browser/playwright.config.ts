@@ -6,6 +6,7 @@ export default defineConfig({
     "workflow.spec.ts",
     "concurrent-text.spec.ts",
     "workspaces.spec.ts",
+    "spaces-api.spec.ts",
   ],
   workers: 1,
   retries: 0,
