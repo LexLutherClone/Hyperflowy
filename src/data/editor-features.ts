@@ -13,6 +13,7 @@ import {
   type FocusSettings,
 } from "./focus-settings";
 import { kvFetch, kvPut, toKvRows } from "./kv-api";
+import { inSpace } from "./outline-scope";
 import { queryClient } from "./query-client";
 
 const KEYS = {
@@ -131,7 +132,7 @@ interface FeatureSnapshot {
 }
 const INITIAL: FeatureSnapshot = {
   bible: true,
-  daily: true,
+  daily: !inSpace(),
   embeds: true,
   focusSessions: true,
   externalEmbeds: false,
@@ -179,7 +180,9 @@ function rebuild(ready = snapshot.ready, error = snapshot.error) {
       ? emptyDaysRow.emptyDays
       : "show";
   const bible = bibleRow?.key === KEYS.bible ? bibleRow.enabled : true;
-  const daily = dailyRow?.key === KEYS.daily ? dailyRow.enabled : true;
+  // Daily notes live in your own outline; a shared space has none (ADR 0079).
+  const daily =
+    !inSpace() && (dailyRow?.key === KEYS.daily ? dailyRow.enabled : true);
   const embeds = embedsRow?.key === KEYS.embeds ? embedsRow.enabled : true;
   const focusSessions =
     focusSessionsRow?.key === KEYS.focusSessions

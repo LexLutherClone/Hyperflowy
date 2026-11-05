@@ -90,6 +90,7 @@ import {
   buildTreeIndex,
   childrenOf,
   countSubtreeNodes,
+  isReadOnlyOutline,
   trueSourceOf,
   type Node,
 } from "../data/tree";
@@ -3481,7 +3482,9 @@ function ZoomedTitle({
       id: "core:protection-indicator",
       position: "title:before-text",
       render: () =>
-        protectedNode || locked ? (
+        // A view-only shared space reads every node as locked (ADR 0079);
+        // that's the role, not an owner lock, so it gets no padlock.
+        protectedNode || (locked && !isReadOnlyOutline()) ? (
           <ProtectionIndicator
             size={16}
             label={

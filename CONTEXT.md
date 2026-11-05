@@ -72,6 +72,14 @@ _Avoid_: secret, redaction (that's what MCP does to it, not what it is), hidden 
 A way of reading a zoomed node as columns of cards: its children are the columns, their children the cards. A view of the outline, not a copy: moving a card moves the node, and any outline change shows on the board. Contrast with Filter, which prunes rows; a board rearranges how they read.
 _Avoid_: kanban (fine in prose, but the view is "board"), board mode, swimlanes
 
+**Shared note**:
+A bullet and everything under it, shared with people or workspace groups, each with a role: can view, can comment, can edit, or admin. It lives in its own space, opened at its own address; the owner's outline keeps the bullet as a link to it. Internally a "space".
+_Avoid_: shared list, shared page (a page is a zoomed view), collaboration
+
+**Workspace**:
+A team: people with a workspace role (owner, admin, member) and named groups of them, used to share notes with several people at once. Holds no notes itself.
+_Avoid_: organization, team space, org
+
 **Filter**:
 A query applied to the current view that prunes it to matches and their context. Purely a way of _looking_ at the outline: it changes nothing — not collapse state, not the caret's location, not where you are. Clearing it restores the exact prior view. Contrast with navigation (Cmd+K), which takes you somewhere.
 _Avoid_: search (that word implies going to a result; a filter stays put)

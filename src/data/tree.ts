@@ -185,8 +185,21 @@ export function computeLockedContentIds(
 }
 
 /** Whether `id`'s shared content is directly or transitively locked. */
+/** A view-only shared space (ADR 0079): every node reads as locked, so every
+ *  editing affordance the lock already disables stays disabled. Set once,
+ *  before the editor mounts; never set in the Worker. */
+let readOnlyOutline = false;
+export function setReadOnlyOutline(readOnly: boolean): void {
+  readOnlyOutline = readOnly;
+}
+/** True on a view-only shared space: the lock is the role, not an owner lock,
+ *  so lock chrome (padlocks, "unlock it" copy) doesn't apply. */
+export function isReadOnlyOutline(): boolean {
+  return readOnlyOutline;
+}
+
 export function isNodeLocked(index: TreeIndex, id: string): boolean {
-  return index.lockedContentIds.has(trueSourceOf(index, id));
+  return readOnlyOutline || index.lockedContentIds.has(trueSourceOf(index, id));
 }
 
 /** Whether another direct lock still covers this node after its own direct lock

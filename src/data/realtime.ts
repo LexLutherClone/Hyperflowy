@@ -15,6 +15,7 @@ import { Socket } from "effect/socket";
 
 import type { ServerMessage } from "./wire-schema";
 
+import { outlineApiBase } from "./outline-scope";
 import { ServerMessageSchema } from "./wire-schema";
 
 // Re-export the wire types so this module stays the client's import surface for
@@ -88,7 +89,7 @@ class HelloTimeoutError extends Data.TaggedError("HelloTimeoutError")<{}> {}
 
 function syncUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/api/sync`;
+  return `${proto}//${window.location.host}${outlineApiBase()}/sync`;
 }
 
 /** Decode inbound `ServerMessage`s (schema-derived exit, no throw). */

@@ -13,6 +13,10 @@ import {
 } from "../worker/wire";
 
 /** A node's editable text in the outline list (not the zoomed page title). */
+/** A personal outline endpoint, or the same one under a shared space. */
+const OUTLINE_PATH = (name: "nodes" | "kv" | "sync") =>
+  new RegExp(`^/api(?:/spaces/[^/]+)?/${name}$`);
+
 export const text = (page: Page, id: string): Locator =>
   page.locator(`li[data-node-id="${id}"] > .outline-row .node-text`);
 
@@ -343,7 +347,8 @@ export async function seedOutline(
   );
 
   await page.route(
-    (url) => url.pathname === "/api/nodes",
+    // The open shared space's endpoints too (ADR 0079): one mock per page.
+    (url) => OUTLINE_PATH("nodes").test(url.pathname),
     async (route) => {
       const req = route.request();
       switch (req.method()) {
@@ -485,7 +490,7 @@ export async function seedOutline(
   );
 
   await page.route(
-    (url) => url.pathname === "/api/kv",
+    (url) => OUTLINE_PATH("kv").test(url.pathname),
     async (route) => {
       const req = route.request();
       const collection =
@@ -530,7 +535,7 @@ export async function seedOutline(
   // `hello` with a full snapshot at the current seq (a reconnect resumes from
   // committed state, exactly like the DO's snapshot path).
   await page.routeWebSocket(
-    (url) => url.pathname === "/api/sync",
+    (url) => OUTLINE_PATH("sync").test(url.pathname),
     (ws) => {
       socket = ws;
       ws.onMessage(async () => {

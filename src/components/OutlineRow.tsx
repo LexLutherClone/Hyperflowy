@@ -9,6 +9,7 @@ import type { NodeCommands } from "./node-commands";
 import { isMirrorsEnabled } from "../data/flags";
 import { useSelectionFill } from "../data/selection-fill";
 import { clearSelection } from "../data/selection-state";
+import { isReadOnlyOutline } from "../data/tree";
 import {
   useIsLocked,
   useMirrorCount,
@@ -280,7 +281,9 @@ function RowChrome({
       id: "core:protection-indicator",
       position: "row:before-text",
       render: () =>
-        protectedNode || locked ? (
+        // A view-only shared space reads every node as locked (ADR 0079);
+        // that's the role, not an owner lock, so it gets no padlock.
+        protectedNode || (locked && !isReadOnlyOutline()) ? (
           <ProtectionIndicator
             size={12}
             label={

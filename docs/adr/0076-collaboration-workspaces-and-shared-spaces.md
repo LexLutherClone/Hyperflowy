@@ -83,9 +83,8 @@ the object count outgrows one cron invocation's subrequest budget.
 0. **Concurrent text merge.** Done: [ADR 0077](./0077-concurrent-text-merge.md).
 1. **Workspaces and groups.** Done:
    [ADR 0078](./0078-workspaces-and-groups.md).
-2. **Shared spaces.** Server half done:
-   [ADR 0079](./0079-shared-spaces.md). The app's space view and share dialog
-   are next.
+2. **Shared spaces.** Done: [ADR 0079](./0079-shared-spaces.md). A space
+   opens at its own address; milestone 3 brings it inline into your outline.
 3. **Multi-space client.** Several sync streams in one tree, cross-space moves,
    read-only rendering, permission-aware search, backlinks, export, MCP, CLI.
 4. **Comments and the Commenter role.** Comment threads on nodes, mentions,

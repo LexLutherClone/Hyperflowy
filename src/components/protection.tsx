@@ -25,6 +25,7 @@ import type { NodeProtection } from "../plugins/types";
 
 import {
   isNodeLocked,
+  isReadOnlyOutline,
   orphanedMirrorsBy,
   subtreeContainsLocked,
   type TreeIndex,
@@ -103,9 +104,12 @@ export function guardLocked(
 ): boolean {
   if (!isNodeLocked(index, id)) return false;
   rejectRow(rowEl);
-  toast.error("This subtree is locked. Unlock it before editing.", {
-    id: "node-locked",
-  });
+  toast.error(
+    isReadOnlyOutline()
+      ? "You can view this shared note but not change it."
+      : "This subtree is locked. Unlock it before editing.",
+    { id: "node-locked" },
+  );
   return true;
 }
 

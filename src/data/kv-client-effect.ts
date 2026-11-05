@@ -1,5 +1,7 @@
 import { Data, Duration, Effect, Schedule } from "effect";
 
+import { kvEndpoint } from "./outline-scope";
+
 /**
  * The Effect transport core for the /api/kv side-collections — a typed-error,
  * retrying, time-bounded kv REST client. Two shells consume it: the throwing
@@ -23,8 +25,6 @@ import { Data, Duration, Effect, Schedule } from "effect";
  *    `runPromise` never rejects and the caller sees only plain success.
  */
 
-const ENDPOINT = "/api/kv";
-
 /** A JSON-parsed value of unchecked shape — the domain `res.json()` produces. */
 type JsonValue =
   | string
@@ -46,7 +46,7 @@ const jsonTypeOf = (value: JsonValue): string => {
 };
 
 const url = (collection: string) =>
-  `${ENDPOINT}?collection=${encodeURIComponent(collection)}`;
+  `${kvEndpoint(collection)}?collection=${encodeURIComponent(collection)}`;
 
 // --- Domain errors ----------------------------------------------------------
 

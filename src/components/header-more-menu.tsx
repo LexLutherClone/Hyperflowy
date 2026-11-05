@@ -9,6 +9,7 @@ import {
   File01Icon,
   FocusIcon,
   KanbanIcon,
+  UserGroupIcon,
   Logout01Icon,
   Settings01Icon,
   ShieldCheckIcon,
@@ -38,6 +39,7 @@ import { signOutAndReload, useSession } from "../lib/auth-client";
 import { usePluginChrome } from "../plugins/registry";
 import { openChangelog } from "./changelog-opener";
 import { useShowCompleted } from "./show-completed-provider";
+import { onSpacePage, shareBullet } from "./spaces";
 import { setSpotlightEnabled, useSpotlightEnabled } from "./spotlight-mode";
 import { Button } from "./ui/button";
 import {
@@ -217,6 +219,13 @@ export function HeaderViewMenu() {
             <HugeiconsIcon icon={KanbanIcon} />
             Board view
           </DropdownMenuCheckboxItem>
+        )}
+
+        {current && !onSpacePage() && (
+          <DropdownMenuItem onClick={() => void shareBullet(current.id)}>
+            <HugeiconsIcon icon={UserGroupIcon} />
+            Share this page…
+          </DropdownMenuItem>
         )}
 
         <DropdownMenuItem onClick={() => setViewCollapsed(true)}>

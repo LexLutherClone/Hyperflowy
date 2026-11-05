@@ -39,6 +39,25 @@ editor, or admin.
   highest-ranked, longest-standing email grant held by an existing verified
   account. A space nobody can inherit is wiped with its Durable Object.
 
+## In the app
+
+- **"Share this page…"** in the View menu (on a zoomed page of your own
+  outline) shares it and opens the new space with its Share dialog.
+- **A space opens at `/s/<id>`**, with a banner naming it and your role, a
+  Share button for admins, and a way back to your outline. Everything in the
+  editor works there: zoom (`/s/<id>/<nodeId>`), board view, mirrors within
+  the space, undo, search, filters. Daily notes are off in a space, and an
+  empty space is never seeded with the welcome outline.
+- **The Share dialog** renames the space, shares with a person by email or a
+  group from your workspaces, changes a grant's role, and removes it.
+- **Settings → Shared notes** lists the spaces you own or that are shared
+  with you.
+- **View-only roles** (viewer, commenter) get a read-only editor: every node
+  reads as locked, so every editing affordance the lock already disables is
+  disabled. The Worker refuses their writes regardless.
+- **A space you can't reach** (deleted, never shared with you, or revoked)
+  shows a plain message with a way back.
+
 ## Decisions
 
 **A space is a `UserOutlineDO` named `space:<id>`.** Same class, same storage,
@@ -85,6 +104,22 @@ from D1; the Worker's role check on reconnect is the single source of truth.
 | `PATCH /api/spaces/:id { name }`            | admin       |
 | `PUT` / `DELETE /api/spaces/:id/grants`     | admin       |
 
+**One outline per page.** The data layer is module singletons (one
+collection, one tree store, one history), so a page edits exactly one outline,
+chosen once at load from the address (`src/data/outline-scope.ts`). In a space
+the outline endpoints point at `/api/spaces/<id>/…`, the router rewrites
+addresses under `/s/<id>` (a `rewrite`, because TanStack Start resets
+`basepath` when it hydrates), and moving between your outline and a space is
+a full page load. Account data stays personal: preferences, saved filters,
+the changelog cursor, the daily index. A space's board views and tag colors
+belong to the space. Showing a space inline inside your own outline is
+ADR 0076 milestone 3.
+
+**The role arrives before the editor.** `SpaceGate` holds the app until
+`GET /api/spaces/:id` answers, so a view-only role makes the outline
+read-only from its first render (`setReadOnlyOutline` in `src/data/tree.ts`,
+never set in the Worker).
+
 ## Tests
 
 `worker/share-plan.test.ts` (the plan and every refusal),
@@ -95,4 +130,7 @@ a failed copy, refusals, grants, revocation resetting connections, group
 grants needing workspace membership, account deletion), and
 `e2e/worker-browser/spaces-api.spec.ts` (two real accounts against the real
 Worker, DOs, and D1: share, role checks on reads, writes, and the live socket,
-revocation closing it, and a refused reconnect).
+revocation closing it, and a refused reconnect). `e2e/worker-browser/spaces-ui.spec.ts` drives the app with two real
+accounts: share from the View menu, grant in the Share dialog, open it from
+Settings, edit it live, zoom inside the space, downgrade to view-only, and
+revoke.

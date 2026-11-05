@@ -31,6 +31,7 @@ import {
   SettingsOptionRow,
   SettingsSwitchTarget,
 } from "../components/settings-option-row";
+import { SharedNotesSection } from "../components/spaces";
 import { useTextSize, type TextSize } from "../components/text-size-provider";
 import { useTheme } from "../components/theme-provider";
 import {
@@ -1164,6 +1165,7 @@ function SettingsPage() {
 
       <div className="mx-auto flex max-w-2xl flex-col gap-10 px-4 py-8 sm:px-6">
         <WorkspacesSection />
+        <SharedNotesSection />
         <ConnectionsSection plan={plan} />
         <PluginsSection />
         <AppearanceSection />

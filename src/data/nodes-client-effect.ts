@@ -3,6 +3,7 @@ import { Data, Duration, Effect, Schedule } from "effect";
 import type { ChangeOp } from "./realtime";
 import type { Node } from "./schema";
 
+import { outlineApiBase } from "./outline-scope";
 import { getWriteClientId } from "./write-origin";
 
 /**
@@ -34,7 +35,8 @@ import { getWriteClientId } from "./write-origin";
  *  - Timeout: `Effect.timeoutOrElse` turns a stall into a typed `NodesTimeoutError`.
  */
 
-const ENDPOINT = "/api/nodes";
+/** This page's outline (ADR 0079): yours, or the open shared space. */
+const ENDPOINT = `${outlineApiBase()}/nodes`;
 
 /** A JSON-parsed value of unchecked shape — the domain `res.json()` produces. */
 type JsonValue =

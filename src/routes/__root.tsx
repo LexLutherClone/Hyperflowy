@@ -27,6 +27,7 @@ import { PluginEditorAppearance } from "../components/plugin-editor-appearance";
 import { QuickAdd } from "../components/quick-add";
 import { SettingsNavRegistrar } from "../components/settings-nav-registrar";
 import { ShowCompletedProvider } from "../components/show-completed-provider";
+import { SpaceGate } from "../components/spaces";
 import { SpotlightController } from "../components/spotlight-mode";
 import { TextSizeProvider } from "../components/text-size-provider";
 import { ThemeProvider } from "../components/theme-provider";
@@ -152,29 +153,31 @@ function RootComponent() {
           <TextSizeProvider>
             <AuthGate>
               <ShowCompletedProvider>
-                <Outlet />
-                <NodeSwitcher />
-                <QuickAdd />
-                {/* Registers openSettings() so the node-limit toast's "Upgrade"
+                <SpaceGate>
+                  <Outlet />
+                  <NodeSwitcher />
+                  <QuickAdd />
+                  {/* Registers openSettings() so the node-limit toast's "Upgrade"
                     action can SPA-navigate to /settings from non-React code. */}
-                <SettingsNavRegistrar />
-                <MoveDialog />
-                <OpmlImportDialog />
-                <DeleteConfirmDialog />
-                <HistoryRestoreDialog />
-                <ChangelogDialog />
-                {experimentalCapture && <AppleShortcutDialog />}
-                <MirrorPlaces />
-                <TagColorStyles />
-                <SpotlightController />
-                <PluginEditorAppearance />
-                {/* A distinct mechanism from the changelog (ADR 0046): the
+                  <SettingsNavRegistrar />
+                  <MoveDialog />
+                  <OpmlImportDialog />
+                  <DeleteConfirmDialog />
+                  <HistoryRestoreDialog />
+                  <ChangelogDialog />
+                  {experimentalCapture && <AppleShortcutDialog />}
+                  <MirrorPlaces />
+                  <TagColorStyles />
+                  <SpotlightController />
+                  <PluginEditorAppearance />
+                  {/* A distinct mechanism from the changelog (ADR 0046): the
                     changelog says WHAT changed; this says THIS TAB is stale. */}
-                <UpdateAvailableToast />
-                {/* Inside the gate: surfaces a failed "Connect Google" round
+                  <UpdateAvailableToast />
+                  {/* Inside the gate: surfaces a failed "Connect Google" round
                     trip (signed-in). Signed-out failures render inline in
                     AuthScreen via the same consume helper. */}
-                <OAuthCallbackErrorToast />
+                  <OAuthCallbackErrorToast />
+                </SpaceGate>
               </ShowCompletedProvider>
             </AuthGate>
           </TextSizeProvider>

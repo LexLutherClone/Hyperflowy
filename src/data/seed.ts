@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { nodesCollection, nodesLoadError } from "./collection";
 import { BootstrapError } from "./errors";
 import { appendChild } from "./mutations";
+import { inSpace } from "./outline-scope";
 import { createId, createNode, now } from "./tree";
 
 // One-shot guard, set synchronously before the first await. bootstrapOutline is
@@ -31,6 +32,8 @@ let bootstrapped = false;
 export async function bootstrapOutline(): Promise<BootstrapError | void> {
   if (bootstrapped) return;
   bootstrapped = true;
+  // A shared space is never seeded with the welcome outline (ADR 0079).
+  if (inSpace()) return;
 
   // One Effect program. Wait for the first load (tryPromise covers the rare
   // synchronous sync-init throw); then the typed-failure gate — if the sync
