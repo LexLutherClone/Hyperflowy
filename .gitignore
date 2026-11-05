@@ -33,3 +33,4 @@ test-results/
 
 # Amp orb portal runtime files
 .amp/portals/*
+.amp/in/

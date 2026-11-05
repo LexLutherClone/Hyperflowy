@@ -63,6 +63,24 @@ export function linkUrlAtOffset(text: string, offset: number): string | null {
 }
 
 /** http(s) only -- the single URL shape v1 auto-detects (ADR 0005). */
+/** Schemes a link may open. Anything else (`javascript:`, `data:`,
+ *  `vbscript:`, `blob:`...) would run or show attacker content in our origin,
+ *  and link text is shared with other people in a shared note. */
+const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+
+/** The url if it is safe to put in an `href` or open, else null. Parsed with
+ *  the browser's own URL rules (which drop the tabs, newlines and leading
+ *  control characters a `java\tscript:` trick relies on); a scheme-less url
+ *  resolves as relative to the app, which is harmless. */
+export function safeLinkHref(url: string): string | null {
+  try {
+    const parsed = new URL(url, "https://app.invalid/");
+    return SAFE_LINK_PROTOCOLS.has(parsed.protocol) ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export function isHttpUrl(s: string): boolean {
   return /^https?:\/\//i.test(s.trim());
 }

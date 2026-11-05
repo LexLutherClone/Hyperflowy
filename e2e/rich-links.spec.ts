@@ -1017,3 +1017,25 @@ test("copy preserves folded-link source and cut removes the same selection", asy
   expect(await clip(page, "n", "cut")).toBe(SRC);
   await expect(text(page, "n")).toHaveText("");
 });
+
+// Note text is shared in a shared note (ADR 0079), so a link's scheme is a
+// cross-user script vector: `javascript:` must neither render as an href nor
+// open, whether clicked or opened from the keyboard.
+test("a javascript: link renders without an href and never opens", async ({
+  page,
+}) => {
+  await load(page, [
+    {
+      id: "n",
+      parentId: null,
+      prevSiblingId: null,
+      text: "See [click me](javascript:alert(document.domain)) now",
+    },
+    { id: "m", parentId: null, prevSiblingId: "n", text: "other" },
+  ]);
+  const anchor = text(page, "n").locator("a[data-link]");
+  await expect(anchor).toHaveText("click me");
+  await expect(anchor).not.toHaveAttribute("href");
+  await anchor.click();
+  expect(await opened(page)).toEqual([]);
+});

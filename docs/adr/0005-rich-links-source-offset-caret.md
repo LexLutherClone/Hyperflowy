@@ -63,6 +63,12 @@ link keeps its `(url)` half folded. So:
   `paste.ts`): the native clipboard would carry the rendered label and silently drop the url half,
   so the handlers write the source slice — whatever you copy comes back as markdown.
 
+- **A link's scheme is checked before it renders or opens** (`safeLinkHref`, `src/data/links.ts`):
+  only `http:`, `https:`, `mailto:` and `tel:` (or a scheme-less, app-relative url) become an
+  `href`, and `openUrlInFocusedTab` refuses anything else, covering click, Mod+click and Mod+Enter.
+  Note text is shared in shared notes (ADR 0079), so a `javascript:` link would otherwise run in
+  another person's session. A refused link still folds to its label, with no `href`.
+
 All of it fast-paths out on lines with no `](`, which is 99% of them.
 
 **Don't:** assume `textContent` is the source anywhere a line can hold a link; expand the raw URL

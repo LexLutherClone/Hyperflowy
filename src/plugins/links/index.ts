@@ -22,6 +22,7 @@ import {
   encodeUrlForMarkdown,
   isHttpUrl,
   LINK_PATTERN,
+  safeLinkHref,
 } from "../../data/links";
 import { getTreeIndex } from "../../data/tree-store";
 import { isRevealed, resolveNodeId } from "../token-kit";
@@ -124,7 +125,9 @@ function foldedLinkEl(
           contenteditable: "false",
           "data-src": tok,
           "data-src-len": tok.length,
-          href: url,
+          // An unsafe scheme renders as a link with no href; clicks are
+          // re-checked in openUrlInFocusedTab.
+          href: safeLinkHref(url) ?? undefined,
           target: "_blank",
           rel: "noopener noreferrer",
         },
@@ -398,6 +401,8 @@ export default definePlugin({
         e.stopPropagation();
         // SAFETY: the selector "a[data-link]" matched, so el is an anchor
         const href = (el as HTMLAnchorElement).href;
+        // No href means the url's scheme was refused at render.
+        if (!el.hasAttribute("href")) return;
         const textEl = el.closest<HTMLElement>(".node-text");
         openUrlInFocusedTab(href, {
           restoreFocus: () => textEl?.focus({ preventScroll: true }),

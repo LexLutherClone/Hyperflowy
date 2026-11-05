@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+  safeLinkHref,
   bareHttpUrl,
   encodeUrlForMarkdown,
   hasLink,
@@ -103,4 +104,30 @@ test("swapLinkLabel matches against the ENCODED url half (parens case)", () => {
   expect(swapLinkLabel(`[${raw}](${enc}) tail`, enc, raw, "Foo (bar)")).toBe(
     `[Foo (bar)](${enc}) tail`,
   );
+});
+
+test.each([
+  "https://example.com/a?b=1",
+  "http://example.com",
+  "mailto:ann@example.com",
+  "tel:+15555550100",
+  "example.com/no-scheme",
+  "/s/space-id",
+])("safeLinkHref keeps %s", (url) => {
+  expect(safeLinkHref(url)).toBe(url);
+});
+
+test.each([
+  "javascript:alert(1)",
+  "JavaScript:alert(1)",
+  " javascript:alert(1)",
+  "java\tscript:alert(1)",
+  "java\nscript:alert(1)",
+  "\u0001javascript:alert(1)",
+  "data:text/html,<script>alert(1)</script>",
+  "vbscript:msgbox(1)",
+  "blob:https://example.com/x",
+  "file:///etc/passwd",
+])("safeLinkHref refuses %j", (url) => {
+  expect(safeLinkHref(url)).toBeNull();
 });
