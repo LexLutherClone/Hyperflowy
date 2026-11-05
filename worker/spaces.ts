@@ -6,6 +6,8 @@ import type { ChangeOp, Node } from "../src/data/wire-schema";
 import type { UserOutlineDO } from "./outline-do";
 
 import { flattenInline } from "../src/data/inline-text";
+import { orderSiblings } from "../src/data/sibling-chain";
+import { spaceLinkId } from "../src/data/space-link";
 import {
   canEdit,
   canRead,
@@ -26,7 +28,12 @@ import {
 import { shareEmail } from "./collab-email";
 import { planCopy, type CopyPlanError } from "./copy-plan";
 import { sendEmail, type EmailEnv } from "./email";
-import { planShare, spaceLinkText, type SharePlanError } from "./share-plan";
+import {
+  planShare,
+  planUnshare,
+  spaceLinkText,
+  type SharePlanError,
+} from "./share-plan";
 import * as spaces from "./spaces-store";
 import { roleOf as workspaceRoleOf } from "./workspaces-store";
 
@@ -401,6 +408,95 @@ export const handleSpaces = Effect.fn("Spaces.handle")(
               spaces.peopleWithAccess(db, spaceId),
             ),
           });
+
+        // Leave: anyone may remove the grant to their own verified email
+        // (ADR 0084). Access through a group stays until the group changes.
+        if (sub === "grants" && method === "DELETE" && !canShare(role)) {
+          const input = yield* decodeBody(request, RevokeBody);
+          const own =
+            input.granteeType === "email" &&
+            actor.verifiedEmail !== null &&
+            input.granteeId.trim().toLowerCase() ===
+              actor.verifiedEmail.trim().toLowerCase();
+          if (!own)
+            return yield* Effect.fail(
+              fail(403, "forbidden", "Only admins can change who has access."),
+            );
+          yield* Effect.promise(() =>
+            spaces.removeGrant(db, spaceId, "email", input.granteeId),
+          );
+          const still = yield* Effect.promise(() =>
+            spaces.roleFor(db, spaceId, actor.userId, actor.verifiedEmail),
+          );
+          return json({ left: true, stillHasAccess: still !== null });
+        }
+
+        // Stop sharing: the owner brings the note back into their outline,
+        // then the space is wiped (ADR 0084). Written back first; a failure
+        // there changes nothing.
+        if (sub === "unshare" && method === "POST") {
+          if (space.ownerId !== actor.userId)
+            return yield* Effect.fail(
+              fail(403, "forbidden", "Only the owner can stop sharing a note."),
+            );
+          const stub = spaceStub(env, spaceId);
+          const origin = new URL(request.url).origin;
+          const [personal, spaceNodes] = yield* Effect.promise(() =>
+            Promise.all([actor.outline.getNodes(), stub.getNodes()]),
+          );
+          const link = personal.find(
+            (n) => spaceLinkId(n.text, origin) === spaceId,
+          );
+          let ops = link
+            ? planUnshare(personal, spaceNodes, link.id, now)
+            : null;
+          if (!ops) {
+            // No link to fill (or ids taken): append plain copies instead.
+            ops = [];
+            let target: readonly Node[] = personal;
+            const roots = orderSiblings(
+              spaceNodes.filter((n) => n.parentId === null),
+            );
+            for (const root of roots) {
+              const plan = planCopy({
+                source: spaceNodes,
+                rootId: root.id,
+                exclude: new Set(),
+                mode: "copy",
+                target,
+                dailyNodeIds: new Set(),
+                now,
+              });
+              if ("error" in plan) continue;
+              ops.push(...plan.targetOps);
+              target = [
+                ...target,
+                ...plan.targetOps.flatMap((o) =>
+                  o.op === "delete" ? [] : [o.value],
+                ),
+              ];
+            }
+          }
+          const restored = yield* Effect.promise(() =>
+            (ops.length ? actor.outline.applyBatch(ops) : Promise.resolve(0))
+              .then(() => true)
+              .catch(() => false),
+          );
+          if (!restored)
+            return yield* Effect.fail(
+              fail(
+                500,
+                "unshare_failed",
+                "Couldn't bring the note back into your outline. It's still shared.",
+              ),
+            );
+          yield* Effect.promise(async () => {
+            await stub.disconnectAll();
+            await stub.wipe();
+            await spaces.deleteSpaceRows(db, spaceId);
+          });
+          return json({ unshared: true, restored: ops.length });
+        }
 
         if (sub === "grants") {
           if (!canShare(role))

@@ -109,3 +109,53 @@ export function spaceLinkText(name: string, url: string): string {
   const label = name.replace(/[[\]]/g, "").trim() || "Shared note";
   return `[${label}](${url})`;
 }
+
+/**
+ * Stop sharing (ADR 0084): bring a space's outline back into its owner's
+ * outline, in place of the link bullet sharing left there. The link bullet
+ * takes the space root's content and keeps its id and position; the root's
+ * descendants return under it with their own ids, so mirrors inside the
+ * space keep pointing at the right bullets (a mirror of the root now points
+ * at the link bullet). Returns null when that's impossible (no single root,
+ * or an id already taken in the owner's outline); the caller then appends a
+ * plain copy instead.
+ */
+export function planUnshare(
+  personal: readonly Node[],
+  space: readonly Node[],
+  linkNodeId: string,
+  now: number,
+): ChangeOp[] | null {
+  const link = personal.find((n) => n.id === linkNodeId);
+  const roots = space.filter((n) => n.parentId === null);
+  if (!link || roots.length !== 1) return null;
+  const root = roots[0]!;
+  const taken = new Set(personal.map((n) => n.id));
+  const rest = space.filter((n) => n.id !== root.id);
+  if (rest.some((n) => taken.has(n.id))) return null;
+  const remap = (id: string | null) => (id === root.id ? link.id : id);
+  return [
+    {
+      op: "update",
+      value: {
+        ...link,
+        text: root.text,
+        isTask: root.isTask,
+        completed: root.completed,
+        collapsed: root.collapsed,
+        kind: root.kind,
+        updatedAt: now,
+      },
+    },
+    ...rest.map((n) => ({
+      op: "insert" as const,
+      value: {
+        ...n,
+        parentId: remap(n.parentId),
+        mirrorOf: remap(n.mirrorOf),
+        locked: false,
+        updatedAt: now,
+      },
+    })),
+  ];
+}

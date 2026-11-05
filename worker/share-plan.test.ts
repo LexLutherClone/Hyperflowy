@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { Node } from "../src/data/wire-schema";
 
 import { createNode } from "../src/data/tree";
-import { planShare, spaceLinkText } from "./share-plan";
+import { planShare, planUnshare, spaceLinkText } from "./share-plan";
 
 // a
 // b            <- shared
@@ -109,4 +109,41 @@ test("link text is a markdown link with a safe label", () => {
   expect(spaceLinkText("  ", "https://x/s/1")).toBe(
     "[Shared note](https://x/s/1)",
   );
+});
+
+describe("planUnshare", () => {
+  const personal = [
+    createNode({ id: "a" }),
+    createNode({ id: "b", prevSiblingId: "a", text: "[Plan](https://x/s/1)" }),
+  ];
+  const space = [
+    createNode({ id: "b", text: "Launch plan", isTask: true }),
+    createNode({ id: "b1", parentId: "b", text: "One" }),
+    createNode({ id: "b2", parentId: "b", prevSiblingId: "b1", mirrorOf: "b" }),
+  ];
+
+  test("the link bullet takes the root's content; descendants return with their ids", () => {
+    const ops = planUnshare(personal, space, "b", 7)!;
+    expect(ops[0]).toMatchObject({
+      op: "update",
+      value: { id: "b", prevSiblingId: "a", text: "Launch plan", isTask: true },
+    });
+    const inserted = ops
+      .slice(1)
+      .map((o) => (o.op === "delete" ? null : o.value));
+    expect(inserted.map((v) => [v!.id, v!.parentId, v!.mirrorOf])).toEqual([
+      ["b1", "b", null],
+      ["b2", "b", "b"],
+    ]);
+  });
+
+  test("no link bullet, several roots, or a taken id means: append a copy instead", () => {
+    expect(planUnshare(personal, space, "gone", 7)).toBeNull();
+    expect(
+      planUnshare(personal, [...space, createNode({ id: "z" })], "b", 7),
+    ).toBeNull();
+    expect(
+      planUnshare([...personal, createNode({ id: "b1" })], space, "b", 7),
+    ).toBeNull();
+  });
 });

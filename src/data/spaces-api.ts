@@ -139,3 +139,20 @@ export const copyOutOfSpace = (
     "Couldn't copy into your outline.",
     { rootId, exclude },
   );
+
+/** Owner: bring the note back into your outline and stop sharing it. */
+export const stopSharing = (spaceId: string) =>
+  request<{ unshared: boolean }>(
+    "POST",
+    `${at(spaceId)}/unshare`,
+    "Couldn't stop sharing the note.",
+  );
+
+/** Remove the grant to your own email (leave the note). */
+export const leaveSpace = (spaceId: string, email: string) =>
+  request<{ left: boolean; stillHasAccess: boolean }>(
+    "DELETE",
+    `${at(spaceId)}/grants`,
+    "Couldn't leave the note.",
+    { granteeType: "email", granteeId: email },
+  );

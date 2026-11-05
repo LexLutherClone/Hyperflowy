@@ -71,6 +71,9 @@ const outline = (name: string) => {
 
 /** Every field these routes return; each response fills a subset. */
 interface SpacesBody {
+  unshared?: boolean;
+  left?: boolean;
+  stillHasAccess?: boolean;
   count?: number;
   removed?: boolean;
   people?: { name: string | null; email: string }[];
@@ -472,5 +475,65 @@ describe("copy and move between outlines", () => {
         })
       ).status,
     ).toBe(404);
+  });
+});
+
+describe("ending a share", () => {
+  test("the owner stops sharing: the note comes back into the link bullet, then the space is gone", async () => {
+    const res = await share();
+    const id = res.body.space!.id;
+    // The personal outline as the share left it: the link bullet in place.
+    const [linkOp] = outline("ann").batches[0]!;
+    outline("ann").nodes = [
+      createNode({ id: "a", text: "Inbox" }),
+      linkOp!.op === "delete" ? createNode({ id: "x" }) : linkOp!.value,
+    ];
+    outline("ann").batches = [];
+    await call("ann", "PUT", `/api/spaces/${id}/grants`, {
+      granteeType: "email",
+      email: "bo@example.com",
+      role: "admin",
+    });
+    // Another admin can't end the share; only the owner can.
+    expect((await call("bo", "POST", `/api/spaces/${id}/unshare`)).status).toBe(
+      403,
+    );
+    const done = await call("ann", "POST", `/api/spaces/${id}/unshare`);
+    expect(done.body.unshared).toBe(true);
+    const restored = outline("ann").batches[0]!;
+    expect(restored[0]).toMatchObject({
+      op: "update",
+      value: { id: "p", text: "**Launch** plan" },
+    });
+    expect(
+      restored
+        .slice(1)
+        .flatMap((o) => (o.op === "insert" ? [o.value.id] : []))
+        .sort(),
+    ).toEqual(["p1", "p2"]);
+    expect(outline(`space:${id}`).wiped).toBe(true);
+    expect(outline(`space:${id}`).disconnects).toBeGreaterThan(0);
+    expect((await call("bo", "GET", `/api/spaces/${id}`)).status).toBe(404);
+  });
+
+  test("someone shared by email can leave; they can't remove anyone else", async () => {
+    const id = (await share()).body.space!.id;
+    for (const email of ["bo@example.com", "cy@example.com"])
+      await call("ann", "PUT", `/api/spaces/${id}/grants`, {
+        granteeType: "email",
+        email,
+        role: "viewer",
+      });
+    const other = await call("bo", "DELETE", `/api/spaces/${id}/grants`, {
+      granteeType: "email",
+      granteeId: "cy@example.com",
+    });
+    expect(other.status).toBe(403);
+    const left = await call("bo", "DELETE", `/api/spaces/${id}/grants`, {
+      granteeType: "email",
+      granteeId: "BO@example.com",
+    });
+    expect(left.body).toEqual({ left: true, stillHasAccess: false });
+    expect((await call("bo", "GET", `/api/spaces/${id}`)).status).toBe(404);
   });
 });

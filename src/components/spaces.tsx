@@ -16,6 +16,7 @@ import {
 } from "../data/space-session";
 import * as spaces from "../data/spaces-api";
 import * as workspaces from "../data/workspaces-api";
+import { useSession } from "../lib/auth-client";
 import { RowGroup, Section, SettingRow } from "./settings-layout";
 import { Button } from "./ui/button";
 import {
@@ -82,6 +83,26 @@ export function SpaceGate({ children }: { children: ReactNode }) {
 }
 
 function SpaceBanner({ space, role }: { space: SpaceInfo; role: SpaceRole }) {
+  const { data: auth } = useSession();
+  const owner = auth?.user.id === space.ownerId;
+  const leave = async () => {
+    const email = auth?.user.email;
+    if (!email) return;
+    if (
+      !window.confirm(
+        `Leave “${space.name}”? You'll lose access unless someone shares it again.`,
+      )
+    )
+      return;
+    try {
+      const { stillHasAccess } = await spaces.leaveSpace(space.id, email);
+      if (stillHasAccess)
+        toast.info("You still have access through a workspace group.");
+      else window.location.assign("/");
+    } catch (error) {
+      if (error instanceof Error) report(error);
+    }
+  };
   const [sharing, setSharing] = useState(
     () =>
       canShare(role) &&
@@ -104,6 +125,11 @@ function SpaceBanner({ space, role }: { space: SpaceInfo; role: SpaceRole }) {
           <Button size="sm" variant="outline" onClick={() => setSharing(true)}>
             <Share2Icon />
             Share
+          </Button>
+        )}
+        {!owner && auth && (
+          <Button size="sm" variant="ghost" onClick={() => void leave()}>
+            Leave
           </Button>
         )}
         <Button
@@ -143,6 +169,7 @@ export function ShareDialog({
   const [groupId, setGroupId] = useState("");
   const [groupRole, setGroupRole] = useState<SpaceRole>("viewer");
   const [name, setName] = useState("");
+  const { data: auth } = useSession();
 
   const reload = useCallback(async () => {
     try {
@@ -298,6 +325,10 @@ export function ShareDialog({
               </form>
             )}
 
+            {auth?.user.id === detail.space.ownerId && (
+              <StopSharing spaceId={spaceId} name={detail.space.name} />
+            )}
+
             <div className="flex flex-col gap-2">
               <h3 className="text-sm font-medium">Who has access</h3>
               <ul className="flex flex-col divide-y rounded-lg ring-1 ring-foreground/10">
@@ -364,6 +395,53 @@ export function ShareDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Owner only: bring the note back into your outline and end the share. */
+function StopSharing({ spaceId, name }: { spaceId: string; name: string }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!confirming)
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className="self-start text-destructive"
+        onClick={() => setConfirming(true)}
+      >
+        Stop sharing…
+      </Button>
+    );
+  return (
+    <div className="flex flex-col gap-2 rounded-lg p-3 text-sm ring-1 ring-destructive/30">
+      <p>
+        “{name}” goes back into your outline where its link is, and everyone
+        else loses access. Its comments are deleted.
+      </p>
+      <div className="flex gap-2">
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void spaces
+              .stopSharing(spaceId)
+              .then(() => window.location.assign("/"))
+              .catch((error: Error) => {
+                report(error);
+                setBusy(false);
+              });
+          }}
+        >
+          Stop sharing
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
 

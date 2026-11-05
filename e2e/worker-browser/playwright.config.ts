@@ -10,6 +10,7 @@ export default defineConfig({
     "spaces-ui.spec.ts",
     "comments.spec.ts",
     "copy.spec.ts",
+    "lifecycle.spec.ts",
   ],
   workers: 1,
   retries: 0,
