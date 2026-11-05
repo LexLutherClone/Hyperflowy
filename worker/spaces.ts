@@ -22,6 +22,8 @@ import {
   sameOrigin,
   segments,
 } from "./api-http";
+import { shareEmail } from "./collab-email";
+import { sendEmail, type EmailEnv } from "./email";
 import { planShare, spaceLinkText, type SharePlanError } from "./share-plan";
 import * as spaces from "./spaces-store";
 import { roleOf as workspaceRoleOf } from "./workspaces-store";
@@ -40,7 +42,7 @@ import { roleOf as workspaceRoleOf } from "./workspaces-store";
  *   still have access reconnect and pass the role check again.
  */
 
-interface SpacesEnv {
+interface SpacesEnv extends EmailEnv {
   DB: D1Database;
   USER_OUTLINE: DurableObjectNamespace<UserOutlineDO>;
   WORKSPACE_LIMIT: RateLimit;
@@ -60,7 +62,11 @@ export interface ShareSource {
 export interface SpaceActor {
   /** Better Auth user id. */
   userId: string;
+  /** Display name, for the emails this actor's changes send. */
+  name: string;
   verifiedEmail: string | null;
+  /** Run work after the response (the request's waitUntil). */
+  defer: (work: Promise<unknown>) => void;
   /** The actor's personal outline (resolveUserId-routed), the share source. */
   outline: ShareSource;
 }
@@ -260,6 +266,14 @@ export const handleSpaces = Effect.fn("Spaces.handle")(
           return json({ error: "method_not_allowed" }, 405);
         }
 
+        // Who has access, for anyone who does (the mention picker, ADR 0082).
+        if (sub === "people" && method === "GET")
+          return json({
+            people: yield* Effect.promise(() =>
+              spaces.peopleWithAccess(db, spaceId),
+            ),
+          });
+
         if (sub === "grants") {
           if (!canShare(role))
             return yield* Effect.fail(
@@ -273,7 +287,7 @@ export const handleSpaces = Effect.fn("Spaces.handle")(
                 return yield* Effect.fail(
                   fail(400, "invalid_email", "Enter a valid email address."),
                 );
-              yield* Effect.promise(() =>
+              const created = yield* Effect.promise(() =>
                 spaces.putGrant(
                   db,
                   spaceId,
@@ -284,6 +298,20 @@ export const handleSpaces = Effect.fn("Spaces.handle")(
                   now,
                 ),
               );
+              // Tell them, once: a role change doesn't email again (ADR 0082).
+              if (created)
+                actor.defer(
+                  sendEmail(
+                    env,
+                    shareEmail({
+                      to: email,
+                      sharerName: actor.name,
+                      noteName: space.name,
+                      role: input.role,
+                      url: `${new URL(request.url).origin}/s/${encodeURIComponent(spaceId)}`,
+                    }),
+                  ),
+                );
             } else {
               // You can only share with groups of a workspace you're in.
               const workspaceId = yield* Effect.promise(() =>

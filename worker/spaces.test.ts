@@ -7,6 +7,7 @@ import type { UserOutlineDO } from "./outline-do";
 import type { SpaceGrant, SpaceSummary } from "./spaces-store";
 
 import { createNode } from "../src/data/tree";
+import { notifyMentions } from "./mentions";
 import { handleSpaces, releaseOwnedSpaces } from "./spaces";
 import { putGrant, roleFor } from "./spaces-store";
 import { sqliteD1, type SqliteD1 } from "./testing/d1-sqlite";
@@ -51,6 +52,14 @@ class FakeOutline {
 }
 
 let env: SqliteD1;
+let sent: { to: string; subject: string }[] = [];
+let deferred: Promise<unknown>[] = [];
+// SAFETY: the fake implements `send`, the only method sendEmail calls.
+const EMAIL = Object.assign({} as SendEmail, {
+  send: async (message: { to: string; subject: string }) => {
+    sent.push({ to: message.to, subject: message.subject });
+  },
+});
 let objects: Map<string, FakeOutline>;
 let failSpaceCopies = false;
 const outline = (name: string) => {
@@ -62,6 +71,7 @@ const outline = (name: string) => {
 
 /** Every field these routes return; each response fills a subset. */
 interface SpacesBody {
+  people?: { name: string | null; email: string }[];
   space?: { id: string; name: string; url: string; ownerId: string };
   replaced?: boolean;
   role?: SpaceRole;
@@ -104,11 +114,14 @@ async function call(
         DB: env.db,
         USER_OUTLINE: namespace,
         WORKSPACE_LIMIT: { limit: async () => ({ success: true }) },
+        EMAIL,
       },
       {
         userId,
+        name: userId.toUpperCase(),
         verifiedEmail: `${userId}@example.com`,
         outline: outline(userId),
+        defer: (work) => deferred.push(work),
       },
     ),
   );
@@ -118,6 +131,8 @@ async function call(
 }
 
 beforeEach(() => {
+  sent = [];
+  deferred = [];
   objects = new Map();
   failSpaceCopies = false;
   env = sqliteD1([
@@ -295,5 +310,74 @@ describe("account deletion", () => {
     expect(env.sqlite.query("SELECT id FROM spaces ORDER BY id").all()).toEqual(
       [{ id: kept }],
     );
+  });
+});
+
+describe("notifications", () => {
+  test("a new email grant emails the person once; a role change doesn't", async () => {
+    const id = (await share()).body.space!.id;
+    const grant = (role: string) =>
+      call("ann", "PUT", `/api/spaces/${id}/grants`, {
+        granteeType: "email",
+        email: "Bo@Example.com",
+        role,
+      });
+    await grant("viewer");
+    await grant("editor");
+    await Promise.all(deferred);
+    expect(sent).toEqual([
+      { to: "Bo@Example.com", subject: "ANN shared “Launch plan” with you" },
+    ]);
+  });
+
+  test("anyone with access lists who else has it, emails only for grants", async () => {
+    const id = (await share()).body.space!.id;
+    await call("ann", "PUT", `/api/spaces/${id}/grants`, {
+      granteeType: "email",
+      email: "bo@example.com",
+      role: "commenter",
+    });
+    const people = await call("bo", "GET", `/api/spaces/${id}/people`);
+    expect(people.body.people).toEqual([
+      { name: "ANN", email: "ann@example.com" },
+      // The grant shows its address only: no hint whether an account exists.
+      { name: null, email: "bo@example.com" },
+    ]);
+    expect((await call("cy", "GET", `/api/spaces/${id}/people`)).status).toBe(
+      404,
+    );
+  });
+
+  test("mentions email only verified people with access, never the author", async () => {
+    const id = (await share()).body.space!.id;
+    await call("ann", "PUT", `/api/spaces/${id}/grants`, {
+      granteeType: "email",
+      email: "bo@example.com",
+      role: "viewer",
+    });
+    await Promise.all(deferred);
+    sent = [];
+    const count = await notifyMentions(
+      { DB: env.db, EMAIL },
+      {
+        comment: {
+          id: "c1",
+          nodeId: "p",
+          authorId: "ann",
+          authorName: "Ann",
+          body: "@bo@example.com @ann@example.com @stranger@example.com see this",
+          createdAt: 1,
+          editedAt: null,
+        },
+        spaceId: id,
+        noteName: "Launch plan",
+        authorId: "ann",
+        origin: ORIGIN,
+      },
+    );
+    expect(count).toBe(1);
+    expect(sent).toEqual([
+      { to: "bo@example.com", subject: "Ann mentioned you in “Launch plan”" },
+    ]);
   });
 });

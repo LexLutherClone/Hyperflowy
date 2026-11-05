@@ -58,8 +58,8 @@ budgeted trailing zone), a `/comment` command, and the side panel host
 
 ## Not yet
 
-Mentions and notifications (email through `worker/email.ts`), comments on your
-own outline, and a list of open threads across a note.
+Comments on your own outline, and a list of open threads across a note.
+Mentions and notifications: [ADR 0082](./0082-collaboration-notifications.md).
 
 ## Tests
 

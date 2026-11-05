@@ -83,3 +83,20 @@ export const setResolved = (nodeId: string, resolved: boolean) =>
     "Couldn't update the thread.",
     { resolved },
   );
+
+export interface SpacePerson {
+  name: string | null;
+  email: string;
+}
+
+/** Who has access to the open space, for the mention picker. */
+export async function people(): Promise<SpacePerson[]> {
+  if (SPACE_ID === null) return [];
+  const response = await fetch(
+    `/api/spaces/${encodeURIComponent(SPACE_ID)}/people`,
+  );
+  if (!response.ok) return [];
+  // SAFETY: a 2xx from GET /api/spaces/:id/people carries { people }.
+  const body = (await response.json()) as { people: SpacePerson[] };
+  return body.people;
+}

@@ -99,6 +99,10 @@ export function CommentsPanel({
   const [editing, setEditing] = useState<{ id: string; body: string } | null>(
     null,
   );
+  const [people, setPeople] = useState<api.SpacePerson[]>([]);
+  useEffect(() => {
+    void api.people().then(setPeople);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -213,7 +217,7 @@ export function CommentsPanel({
                   </form>
                 ) : (
                   <p className="text-sm break-words whitespace-pre-wrap">
-                    {c.body}
+                    <CommentText body={c.body} people={people} />
                   </p>
                 )}
                 {editing?.id !== c.id && (
@@ -251,7 +255,7 @@ export function CommentsPanel({
             >
               <Textarea
                 aria-label="Write a comment"
-                placeholder="Write a comment…"
+                placeholder="Write a comment… Type @ to mention someone."
                 value={draft}
                 maxLength={COMMENT_MAX}
                 onChange={(e) => setDraft(e.target.value)}
@@ -261,6 +265,13 @@ export function CommentsPanel({
                     post();
                   }
                 }}
+              />
+              <MentionSuggestions
+                draft={draft}
+                people={people}
+                onPick={(email) =>
+                  setDraft((d) => d.replace(/@[^\s@]*$/, `@${email} `))
+                }
               />
               <Button type="submit" size="sm" disabled={!draft.trim()}>
                 Comment
@@ -274,6 +285,76 @@ export function CommentsPanel({
         </>
       )}
     </div>
+  );
+}
+
+/** People matching the `@query` the draft ends with. */
+function MentionSuggestions({
+  draft,
+  people,
+  onPick,
+}: {
+  draft: string;
+  people: api.SpacePerson[];
+  onPick: (email: string) => void;
+}) {
+  const match = /(?:^|\s)@([^\s@]*)$/.exec(draft);
+  if (!match) return null;
+  const query = match[1]!.toLowerCase();
+  const hits = people
+    .filter(
+      (p) =>
+        p.email.includes(query) || (p.name ?? "").toLowerCase().includes(query),
+    )
+    .slice(0, 6);
+  if (hits.length === 0) return null;
+  return (
+    <ul
+      aria-label="Mention someone"
+      className="flex flex-col rounded-lg py-1 text-sm ring-1 ring-foreground/10"
+    >
+      {hits.map((p) => (
+        <li key={p.email}>
+          <button
+            type="button"
+            className="flex w-full gap-2 px-3 py-1 text-left hover:bg-muted"
+            onClick={() => onPick(p.email)}
+          >
+            {p.name && <span className="font-medium">{p.name}</span>}
+            <span className="text-muted-foreground">{p.email}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** A comment's text, with `@email` mentions shown as the person's name. */
+function CommentText({
+  body,
+  people,
+}: {
+  body: string;
+  people: api.SpacePerson[];
+}) {
+  const parts = body.split(/(@[^\s@()<>,;]+@[^\s@()<>,;]+\.[A-Za-z]{2,})/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (i % 2 === 0) return part;
+        const email = part.slice(1).toLowerCase();
+        const person = people.find((p) => p.email === email);
+        return (
+          <span
+            key={i}
+            className="rounded bg-primary/10 px-0.5 font-medium"
+            title={email}
+          >
+            @{person?.name ?? email}
+          </span>
+        );
+      })}
+    </>
   );
 }
 

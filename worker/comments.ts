@@ -60,6 +60,8 @@ export interface CommentActor {
   name: string;
   role: SpaceRole;
   space: CommentStore;
+  /** After a comment is added: notify the people it mentions (ADR 0082). */
+  onComment?: (comment: Comment) => void;
 }
 
 const AddBody = Schema.Struct({ nodeId: Schema.String, body: Schema.String });
@@ -141,6 +143,7 @@ export const handleComments = Effect.fn("Comments.handle")(
               editedAt: null,
             };
             yield* Effect.promise(() => space.addComment(comment));
+            actor.onComment?.(comment);
             return json({ comment }, 201);
           }
           return json({ error: "method_not_allowed" }, 405);

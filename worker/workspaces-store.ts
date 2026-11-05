@@ -240,7 +240,7 @@ export async function inviteToWorkspace(
   role: GrantableRole,
   invitedBy: string,
   now: number,
-): Promise<WorkspaceInvite> {
+): Promise<WorkspaceInvite & { created: boolean }> {
   const normalized = normalizeEmail(email);
   const row = await db
     .prepare(
@@ -251,8 +251,9 @@ export async function inviteToWorkspace(
     )
     .bind(id(), workspaceId, normalized, role, invitedBy, now)
     .first<WorkspaceInvite>();
-  // SAFETY: an INSERT ... RETURNING always yields the written row.
-  return row!;
+  // SAFETY: an INSERT ... RETURNING always yields the written row. An update
+  // keeps the original createdAt, so a match means this call created it.
+  return { ...row!, created: row!.createdAt === now };
 }
 
 export async function revokeInvite(
@@ -487,4 +488,15 @@ export async function spacesGrantedToWorkspace(
     .bind(workspaceId)
     .all<{ spaceId: string }>();
   return results.map((r) => r.spaceId);
+}
+
+export async function workspaceName(
+  db: D1Database,
+  workspaceId: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT name FROM workspaces WHERE id = ?")
+    .bind(workspaceId)
+    .first<{ name: string }>();
+  return row?.name ?? null;
 }

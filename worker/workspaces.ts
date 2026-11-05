@@ -20,6 +20,8 @@ import {
   sameOrigin,
   segments,
 } from "./api-http";
+import { workspaceInviteEmail } from "./collab-email";
+import { sendEmail, type EmailEnv } from "./email";
 import * as store from "./workspaces-store";
 
 /**
@@ -36,7 +38,7 @@ import * as store from "./workspaces-store";
  *   account exists.
  */
 
-interface WorkspacesEnv {
+interface WorkspacesEnv extends EmailEnv {
   DB: D1Database;
   WORKSPACE_LIMIT: RateLimit;
   BETTER_AUTH_URL?: string;
@@ -52,6 +54,10 @@ export interface WorkspaceActor {
   userId: string;
   /** The account email, only when verified. */
   verifiedEmail: string | null;
+  /** Display name, for invitation emails. */
+  name?: string;
+  /** Run work after the response (the request's waitUntil). */
+  defer?: (work: Promise<unknown>) => void;
 }
 
 const notFound = () =>
@@ -253,6 +259,23 @@ export const handleWorkspaces = Effect.fn("Workspaces.handle")(
               now,
             ),
           );
+          // Tell them, once: re-inviting doesn't email again (ADR 0082).
+          if (invite.created && actor.defer) {
+            const workspaceName = yield* Effect.promise(() =>
+              store.workspaceName(db, workspaceId),
+            );
+            actor.defer(
+              sendEmail(
+                env,
+                workspaceInviteEmail({
+                  to: invite.email,
+                  inviterName: actor.name ?? "",
+                  workspaceName: workspaceName ?? "",
+                  url: `${new URL(request.url).origin}/settings`,
+                }),
+              ),
+            );
+          }
           return json({ invite }, 201);
         }
         if (method === "DELETE" && subId !== undefined) {

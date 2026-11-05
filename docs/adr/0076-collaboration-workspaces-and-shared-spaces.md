@@ -91,7 +91,8 @@ the object count outgrows one cron invocation's subrequest budget.
    sync streams in one tree for inline editing, cross-space moves,
    permission-aware search, backlinks, export, MCP, CLI.
 4. **Comments and the Commenter role.** Done:
-   [ADR 0081](./0081-comments.md). Mentions and notifications are next.
+   [ADR 0081](./0081-comments.md), with mentions and email notifications in
+   [ADR 0082](./0082-collaboration-notifications.md).
 5. **Mirrors across spaces.** (space, node) mirrors, the refusal rule, and the
    selective-copy dialog.
 6. **Swap.** Move a mirror's source into a shared space, leaving a mirror

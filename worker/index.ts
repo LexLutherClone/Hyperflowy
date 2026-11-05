@@ -79,6 +79,7 @@ import {
   runRetirementOperation,
 } from "./lunora-retirement-service";
 import { handleMcp, mcpCorsPreflight } from "./mcp";
+import { notifyMentions } from "./mentions";
 import { UserOutlineDO as BaseUserOutlineDO } from "./outline-do";
 import { FREE_NODE_LIMIT, getPlan, nodeLimitForPlan } from "./plan";
 import { resolveRestorePoint } from "./restore";
@@ -1275,6 +1276,8 @@ function handleApiRequest(
         {
           userId: session.user.id,
           verifiedEmail: session.user.emailVerified ? session.user.email : null,
+          name: session.user.name || session.user.email,
+          defer: (work) => executionCtx.waitUntil(work),
         },
       );
     }
@@ -1315,6 +1318,17 @@ function handleApiRequest(
             name: session.user.name || session.user.email,
             role,
             space: stubFor(),
+            // Mentions email only people who can reach this note (ADR 0082).
+            onComment: (comment) =>
+              executionCtx.waitUntil(
+                notifyMentions(env, {
+                  comment,
+                  spaceId,
+                  noteName: space.name,
+                  authorId: session.user.id,
+                  origin: url.origin,
+                }),
+              ),
           },
           (spaceData[3] ?? "")
             .split("/")
@@ -1352,6 +1366,8 @@ function handleApiRequest(
     ) {
       return yield* handleSpaces(request, env, {
         userId: session.user.id,
+        name: session.user.name || session.user.email,
+        defer: (work) => executionCtx.waitUntil(work),
         verifiedEmail: session.user.emailVerified ? session.user.email : null,
         outline: env.USER_OUTLINE.get(env.USER_OUTLINE.idFromName(userId)),
       });

@@ -147,6 +147,7 @@ export async function listGrants(
   return results;
 }
 
+/** Grant or re-grant; true when the grant is new (not a role change). */
 export async function putGrant(
   db: D1Database,
   spaceId: string,
@@ -155,12 +156,13 @@ export async function putGrant(
   role: SpaceRole,
   createdBy: string,
   now: number,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const row = await db
     .prepare(
       `INSERT INTO space_grants (spaceId, granteeType, granteeId, role, createdBy, createdAt)
        VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT (spaceId, granteeType, granteeId) DO UPDATE SET role = excluded.role`,
+       ON CONFLICT (spaceId, granteeType, granteeId) DO UPDATE SET role = excluded.role
+       RETURNING createdAt`,
     )
     .bind(
       spaceId,
@@ -170,7 +172,9 @@ export async function putGrant(
       createdBy,
       now,
     )
-    .run();
+    .first<{ createdAt: number }>();
+  // An update keeps the original createdAt.
+  return row?.createdAt === now;
 }
 
 export async function removeGrant(
@@ -298,4 +302,59 @@ export function spaceGrantDeletionStatements(
       )
       .bind(normalizeEmail(email)),
   ];
+}
+
+export interface SpacePerson {
+  name: string | null;
+  email: string;
+}
+
+/**
+ * Who has access to a space, for anyone with access (the mention picker):
+ * the owner, every email grant, and every member of a granted group. Names
+ * appear only for accounts already known to collaborators (the owner and
+ * group members); an email grant shows its address alone, so the list never
+ * reveals whether an address has an account.
+ */
+export async function peopleWithAccess(
+  db: D1Database,
+  spaceId: string,
+): Promise<SpacePerson[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT u.name AS name, lower(trim(u.email)) AS email FROM spaces s
+         JOIN "user" u ON u.id = s.ownerId WHERE s.id = ?1
+       UNION
+       SELECT NULL AS name, g.granteeId AS email FROM space_grants g
+         WHERE g.spaceId = ?1 AND g.granteeType = 'email'
+       UNION
+       SELECT u.name AS name, lower(trim(u.email)) AS email FROM space_grants g
+         JOIN workspace_group_members gm ON gm.groupId = g.granteeId
+         JOIN "user" u ON u.id = gm.userId
+         WHERE g.spaceId = ?1 AND g.granteeType = 'group'`,
+    )
+    .bind(spaceId)
+    .all<SpacePerson>();
+  const byEmail = new Map<string, SpacePerson>();
+  for (const p of results) {
+    const prev = byEmail.get(p.email);
+    if (!prev || (prev.name === null && p.name !== null))
+      byEmail.set(p.email, p);
+  }
+  return [...byEmail.values()].sort((a, b) => a.email.localeCompare(b.email));
+}
+
+/** The verified account behind `email`, if any. */
+export async function verifiedAccount(
+  db: D1Database,
+  email: string,
+): Promise<{ userId: string; email: string } | null> {
+  const normalized = normalizeEmail(email);
+  const row = await db
+    .prepare(
+      `SELECT id FROM "user" WHERE lower(trim(email)) = ? AND emailVerified = 1 LIMIT 1`,
+    )
+    .bind(normalized)
+    .first<{ id: string }>();
+  return row ? { userId: row.id, email: normalized } : null;
 }
