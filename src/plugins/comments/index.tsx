@@ -100,9 +100,11 @@ export function CommentsPanel({
     null,
   );
   const [people, setPeople] = useState<api.SpacePerson[]>([]);
+  // Only people who can comment get the list (viewers never see names).
+  const mayComment = canComment(role);
   useEffect(() => {
-    void api.people().then(setPeople);
-  }, []);
+    if (mayComment) void api.people().then(setPeople);
+  }, [mayComment]);
 
   const load = useCallback(async () => {
     try {
@@ -217,7 +219,7 @@ export function CommentsPanel({
                   </form>
                 ) : (
                   <p className="text-sm break-words whitespace-pre-wrap">
-                    <CommentText body={c.body} people={people} />
+                    <CommentText body={c.body} />
                   </p>
                 )}
                 {editing?.id !== c.id && (
@@ -269,8 +271,13 @@ export function CommentsPanel({
               <MentionSuggestions
                 draft={draft}
                 people={people}
-                onPick={(email) =>
-                  setDraft((d) => d.replace(/@[^\s@]*$/, `@${email} `))
+                onPick={(person) =>
+                  setDraft((d) =>
+                    d.replace(
+                      /@[^\s@]*$/,
+                      `@[${person.name.replace(/[[\]\n]/g, "")}](user:${person.id}) `,
+                    ),
+                  )
                 }
               />
               <Button type="submit" size="sm" disabled={!draft.trim()}>
@@ -288,7 +295,7 @@ export function CommentsPanel({
   );
 }
 
-/** People matching the `@query` the draft ends with. */
+/** People matching the `@query` the draft ends with, by name. */
 function MentionSuggestions({
   draft,
   people,
@@ -296,16 +303,13 @@ function MentionSuggestions({
 }: {
   draft: string;
   people: api.SpacePerson[];
-  onPick: (email: string) => void;
+  onPick: (person: api.SpacePerson) => void;
 }) {
-  const match = /(?:^|\s)@([^\s@]*)$/.exec(draft);
+  const match = /(?:^|\s)@([^\s@[]*)$/.exec(draft);
   if (!match) return null;
   const query = match[1]!.toLowerCase();
   const hits = people
-    .filter(
-      (p) =>
-        p.email.includes(query) || (p.name ?? "").toLowerCase().includes(query),
-    )
+    .filter((p) => p.name.toLowerCase().includes(query))
     .slice(0, 6);
   if (hits.length === 0) return null;
   return (
@@ -314,14 +318,13 @@ function MentionSuggestions({
       className="flex flex-col rounded-lg py-1 text-sm ring-1 ring-foreground/10"
     >
       {hits.map((p) => (
-        <li key={p.email}>
+        <li key={p.id}>
           <button
             type="button"
-            className="flex w-full gap-2 px-3 py-1 text-left hover:bg-muted"
-            onClick={() => onPick(p.email)}
+            className="w-full px-3 py-1 text-left font-medium hover:bg-muted"
+            onClick={() => onPick(p)}
           >
-            {p.name && <span className="font-medium">{p.name}</span>}
-            <span className="text-muted-foreground">{p.email}</span>
+            {p.name}
           </button>
         </li>
       ))}
@@ -329,28 +332,19 @@ function MentionSuggestions({
   );
 }
 
-/** A comment's text, with `@email` mentions shown as the person's name. */
-function CommentText({
-  body,
-  people,
-}: {
-  body: string;
-  people: api.SpacePerson[];
-}) {
-  const parts = body.split(/(@[^\s@()<>,;]+@[^\s@()<>,;]+\.[A-Za-z]{2,})/g);
+/** A comment's text, with mention tags (`@[Name](user:id)`) shown as @Name. */
+function CommentText({ body }: { body: string }) {
+  const parts = body.split(
+    /(@\[[^\]\n]{1,100}\]\(user:[A-Za-z0-9_-]{1,64}\))/g,
+  );
   return (
     <>
       {parts.map((part, i) => {
         if (i % 2 === 0) return part;
-        const email = part.slice(1).toLowerCase();
-        const person = people.find((p) => p.email === email);
+        const name = /^@\[([^\]]*)\]/.exec(part)?.[1] ?? "";
         return (
-          <span
-            key={i}
-            className="rounded bg-primary/10 px-0.5 font-medium"
-            title={email}
-          >
-            @{person?.name ?? email}
+          <span key={i} className="rounded bg-primary/10 px-0.5 font-medium">
+            @{name}
           </span>
         );
       })}

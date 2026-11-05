@@ -19,11 +19,11 @@ about collaboration by email, and comments can mention people.
   ([ADR 0078](./0078-workspaces-and-groups.md)) emails the address, pointing
   to Settings. Re-inviting (or changing the invited role) doesn't email again.
 - **Mentions.** In a comment ([ADR 0081](./0081-comments.md)), typing `@`
-  lists the people with access to the note; picking one inserts their address
-  (`@name@example.com`), and the posted comment shows the mention as their
-  name. Each mentioned person is emailed, with the comment and a link, but only
-  if a verified account with that address currently has a role on the note,
-  and never the author.
+  lists the people with access to the note, by name; picking one inserts a
+  tag, `@[Name](user:<accountId>)`, and the posted comment (and the email)
+  shows it as `@Name`. Each mentioned account is emailed, with the comment and
+  a link, but only if it is verified and currently has a role on the note, and
+  never the author.
 
 ## Decisions
 
@@ -44,9 +44,14 @@ plain-text part carries the same content.
 (`worker/email.ts`, which never throws) on the request's `waitUntil`, so
 neither a slow provider nor a failed send changes or delays the response.
 
-**The people list doesn't leak accounts.** `GET /api/spaces/:id/people`
-(anyone with access) lists the owner and group members with names, and email
-grants by address only, so it never shows whether an address has an account.
+**The people list shows names only, and only to people who can comment.**
+`GET /api/spaces/:id/people` returns `{ id, name }` for the owner, the
+verified accounts behind email grants, and group members. No email addresses:
+a commenter learns who is in the note, not how to reach them. Viewers get a
+403 (they can't comment, so they have no use for it) and strangers a 404.
+Pending email grants with no account yet aren't listed, so the list never
+shows whether an address has an account. A mention carries the account id,
+not an address; the Worker re-checks that account's role before sending.
 
 **"New" is decided by the write itself.** The grant and invitation upserts
 return the row's `createdAt`; an update keeps the original, so equality with

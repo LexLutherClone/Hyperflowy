@@ -5,6 +5,7 @@ import { Effect, Schema } from "effect";
 import type { ChangeOp, Node } from "../src/data/wire-schema";
 import type { UserOutlineDO } from "./outline-do";
 
+import { canComment } from "../src/data/comments";
 import { flattenInline } from "../src/data/inline-text";
 import { orderSiblings } from "../src/data/sibling-chain";
 import { spaceLinkId } from "../src/data/space-link";
@@ -401,13 +402,23 @@ export const handleSpaces = Effect.fn("Spaces.handle")(
           return json({ count: plan.count });
         }
 
-        // Who has access, for anyone who does (the mention picker, ADR 0082).
-        if (sub === "people" && method === "GET")
+        // Who can be mentioned, by name only, for commenters and up: viewers
+        // can't comment, so they never see the list (ADR 0082).
+        if (sub === "people" && method === "GET") {
+          if (!canComment(role))
+            return yield* Effect.fail(
+              fail(
+                403,
+                "forbidden",
+                "Only people who can comment see who has access.",
+              ),
+            );
           return json({
             people: yield* Effect.promise(() =>
               spaces.peopleWithAccess(db, spaceId),
             ),
           });
+        }
 
         // Leave: anyone may remove the grant to their own verified email
         // (ADR 0084). Access through a group stays until the group changes.

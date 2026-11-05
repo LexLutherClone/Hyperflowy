@@ -76,7 +76,7 @@ interface SpacesBody {
   stillHasAccess?: boolean;
   count?: number;
   removed?: boolean;
-  people?: { name: string | null; email: string }[];
+  people?: { id: string; name: string }[];
   space?: { id: string; name: string; url: string; ownerId: string };
   replaced?: boolean;
   role?: SpaceRole;
@@ -335,19 +335,33 @@ describe("notifications", () => {
     ]);
   });
 
-  test("anyone with access lists who else has it, emails only for grants", async () => {
+  test("commenters and up see who can be mentioned, by name only; viewers don't", async () => {
     const id = (await share()).body.space!.id;
     await call("ann", "PUT", `/api/spaces/${id}/grants`, {
       granteeType: "email",
       email: "bo@example.com",
       role: "commenter",
     });
+    await call("ann", "PUT", `/api/spaces/${id}/grants`, {
+      granteeType: "email",
+      email: "nobody@example.com",
+      role: "viewer",
+    });
     const people = await call("bo", "GET", `/api/spaces/${id}/people`);
+    // Names and opaque ids only: no addresses, and a grant with no account
+    // isn't listed.
     expect(people.body.people).toEqual([
-      { name: "ANN", email: "ann@example.com" },
-      // The grant shows its address only: no hint whether an account exists.
-      { name: null, email: "bo@example.com" },
+      { id: "ann", name: "ANN" },
+      { id: "bo", name: "BO" },
     ]);
+    await call("ann", "PUT", `/api/spaces/${id}/grants`, {
+      granteeType: "email",
+      email: "bo@example.com",
+      role: "viewer",
+    });
+    expect((await call("bo", "GET", `/api/spaces/${id}/people`)).status).toBe(
+      403,
+    );
     expect((await call("cy", "GET", `/api/spaces/${id}/people`)).status).toBe(
       404,
     );
@@ -370,7 +384,7 @@ describe("notifications", () => {
           nodeId: "p",
           authorId: "ann",
           authorName: "Ann",
-          body: "@bo@example.com @ann@example.com @stranger@example.com see this",
+          body: "@[Bo](user:bo) @[Ann](user:ann) @[Stranger](user:stranger) see this",
           createdAt: 1,
           editedAt: null,
         },

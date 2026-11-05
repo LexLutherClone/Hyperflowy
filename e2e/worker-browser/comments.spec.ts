@@ -105,13 +105,12 @@ test("comment, read, resolve, and moderate by role", async ({ browser }) => {
   const boPanel = bo.page.locator('[data-comments-panel="copy"]');
   const composer = boPanel.getByRole("textbox", { name: "Write a comment" });
   await composer.fill("Can we shorten this? @an");
-  // The mention picker lists people with access; picking inserts the address.
-  await boPanel
-    .getByRole("list", { name: "Mention someone" })
-    .getByRole("button", { name: /ann@comments.test/ })
-    .click();
+  // The mention picker lists people by name only; picking inserts a tag.
+  const picker = boPanel.getByRole("list", { name: "Mention someone" });
+  await expect(picker).not.toContainText("@comments.test");
+  await picker.getByRole("button", { name: "Ann", exact: true }).click();
   await expect(composer).toHaveValue(
-    "Can we shorten this? @ann@comments.test ",
+    /^Can we shorten this\? @\[Ann\]\(user:[A-Za-z0-9_-]+\) $/,
   );
   await boPanel.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(boPanel.locator("[data-comment]")).toHaveCount(1);

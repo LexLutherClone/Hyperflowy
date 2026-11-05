@@ -305,16 +305,17 @@ export function spaceGrantDeletionStatements(
 }
 
 export interface SpacePerson {
-  name: string | null;
-  email: string;
+  /** The account id: what a mention carries (ADR 0082). Opaque. */
+  id: string;
+  name: string;
 }
 
 /**
- * Who has access to a space, for anyone with access (the mention picker):
- * the owner, every email grant, and every member of a granted group. Names
- * appear only for accounts already known to collaborators (the owner and
- * group members); an email grant shows its address alone, so the list never
- * reveals whether an address has an account.
+ * The accounts with access to a space, by name only (ADR 0082), for the
+ * mention picker: the owner, every verified account an email grant reaches,
+ * and every member of a granted group. No email addresses, and an email grant
+ * without an account isn't listed (it can't be mentioned anyway). The handler
+ * offers this to commenters and up, never to viewers.
  */
 export async function peopleWithAccess(
   db: D1Database,
@@ -322,39 +323,38 @@ export async function peopleWithAccess(
 ): Promise<SpacePerson[]> {
   const { results } = await db
     .prepare(
-      `SELECT u.name AS name, lower(trim(u.email)) AS email FROM spaces s
+      `SELECT u.id AS id, u.name AS name FROM spaces s
          JOIN "user" u ON u.id = s.ownerId WHERE s.id = ?1
        UNION
-       SELECT NULL AS name, g.granteeId AS email FROM space_grants g
+       SELECT u.id AS id, u.name AS name FROM space_grants g
+         JOIN "user" u ON lower(trim(u.email)) = g.granteeId AND u.emailVerified = 1
          WHERE g.spaceId = ?1 AND g.granteeType = 'email'
        UNION
-       SELECT u.name AS name, lower(trim(u.email)) AS email FROM space_grants g
+       SELECT u.id AS id, u.name AS name FROM space_grants g
          JOIN workspace_group_members gm ON gm.groupId = g.granteeId
          JOIN "user" u ON u.id = gm.userId
          WHERE g.spaceId = ?1 AND g.granteeType = 'group'`,
     )
     .bind(spaceId)
-    .all<SpacePerson>();
-  const byEmail = new Map<string, SpacePerson>();
-  for (const p of results) {
-    const prev = byEmail.get(p.email);
-    if (!prev || (prev.name === null && p.name !== null))
-      byEmail.set(p.email, p);
-  }
-  return [...byEmail.values()].sort((a, b) => a.email.localeCompare(b.email));
+    .all<{ id: string; name: string | null }>();
+  const byId = new Map<string, SpacePerson>();
+  for (const r of results)
+    byId.set(r.id, { id: r.id, name: r.name?.trim() || "Someone" });
+  return [...byId.values()].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+  );
 }
 
-/** The verified account behind `email`, if any. */
-export async function verifiedAccount(
+/** A verified account by id: where a mention's email goes. */
+export async function verifiedAccountById(
   db: D1Database,
-  email: string,
+  userId: string,
 ): Promise<{ userId: string; email: string } | null> {
-  const normalized = normalizeEmail(email);
   const row = await db
     .prepare(
-      `SELECT id FROM "user" WHERE lower(trim(email)) = ? AND emailVerified = 1 LIMIT 1`,
+      `SELECT id, lower(trim(email)) AS email FROM "user" WHERE id = ? AND emailVerified = 1`,
     )
-    .bind(normalized)
-    .first<{ id: string }>();
-  return row ? { userId: row.id, email: normalized } : null;
+    .bind(userId)
+    .first<{ id: string; email: string }>();
+  return row ? { userId: row.id, email: row.email } : null;
 }

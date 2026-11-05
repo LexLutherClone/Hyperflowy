@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   escapeHtml,
   mentionEmail,
-  mentionedEmails,
+  mentionedUserIds,
   shareEmail,
   workspaceInviteEmail,
 } from "./collab-email";
@@ -38,20 +38,23 @@ test("invite and mention emails carry the right copy", () => {
     to: "bo@example.com",
     authorName: "Cy",
     noteName: "Plan",
-    comment: "@bo@example.com can you check?",
+    comment: "@[Bo](user:u_bo) can you check?",
     url: "https://app.example/s/1",
   });
   expect(mention.subject).toBe("Cy mentioned you in “Plan”");
-  expect(mention.text).toContain("can you check?");
+  expect(mention.text).toContain("@Bo can you check?");
+  expect(mention.text).not.toContain("user:u_bo");
 });
 
-test("mentions are @email tokens, deduplicated and normalized", () => {
+test("mentions are name tags carrying an account id, deduplicated", () => {
   expect(
-    mentionedEmails(
-      "@Bo@Example.com and (@cy@example.org). Also @bo@example.com, not me@x.com",
+    mentionedUserIds(
+      "@[Bo](user:u_bo) and (@[Cy D](user:u-cy)). Again @[Bo](user:u_bo); not @bo@example.com",
     ),
-  ).toEqual(["bo@example.com", "cy@example.org"]);
-  expect(mentionedEmails("email me at me@x.com")).toEqual([]);
+  ).toEqual(["u_bo", "u-cy"]);
+  expect(mentionedUserIds("email me at me@x.com")).toEqual([]);
+  // An id can't smuggle anything past the token grammar.
+  expect(mentionedUserIds("@[x](user:a/b)")).toEqual([]);
 });
 
 test("escapeHtml covers the five characters", () => {

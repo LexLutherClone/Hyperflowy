@@ -85,11 +85,12 @@ export const setResolved = (nodeId: string, resolved: boolean) =>
   );
 
 export interface SpacePerson {
-  name: string | null;
-  email: string;
+  /** Opaque account id, carried by a mention. */
+  id: string;
+  name: string;
 }
 
-/** Who has access to the open space, for the mention picker. */
+/** Who can be mentioned in the open space, by name (commenters and up). */
 export async function people(): Promise<SpacePerson[]> {
   if (SPACE_ID === null) return [];
   const response = await fetch(

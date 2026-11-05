@@ -102,22 +102,28 @@ export function mentionEmail(input: {
     ...layout(
       [
         `${who} mentioned you in a comment on “${note}”:`,
-        oneLine(input.comment, 500),
+        oneLine(readableMentions(input.comment), 500),
       ],
       { label: "Open the note", url: input.url },
     ),
   };
 }
 
-/** The email addresses a comment mentions (`@name@example.com`), normalized
- *  and deduplicated, at most 20. */
-export function mentionedEmails(body: string): string[] {
+/** A mention in a comment: `@[Name](user:<accountId>)` (ADR 0082). The
+ *  name is display text; the id is what's notified. */
+export const MENTION = /@\[([^\]\n]{1,100})\]\(user:([A-Za-z0-9_-]{1,64})\)/g;
+
+/** The account ids a comment mentions, deduplicated, at most 20. */
+export function mentionedUserIds(body: string): string[] {
   const found = new Set<string>();
-  for (const m of body.matchAll(
-    /(?:^|[\s(])@([^\s@()<>,;]+@[^\s@()<>,;]+\.[A-Za-z]{2,})/g,
-  )) {
-    found.add(m[1]!.toLowerCase().replace(/[.]+$/, ""));
+  for (const m of body.matchAll(MENTION)) {
+    found.add(m[2]!);
     if (found.size >= 20) break;
   }
   return [...found];
+}
+
+/** A comment's text with mention tags shown as `@Name`. */
+export function readableMentions(body: string): string {
+  return body.replace(MENTION, (_m, name: string) => `@${name}`);
 }
