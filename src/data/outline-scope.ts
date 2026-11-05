@@ -28,32 +28,41 @@ export const inSpace = (): boolean => SPACE_ID !== null;
 /** The address prefix of the open space: `/s/<id>`, or null. */
 const prefix = SPACE_ID === null ? null : `/s/${encodeURIComponent(SPACE_ID)}`;
 
+const SPACE_PATH = /^(\/s\/[^/]+)(\/.*)?$/;
+
+/** A router URL rewrite (TanStack Router's `rewrite` option). */
+export interface SpaceRewrite {
+  input: (args: { url: URL }) => URL | undefined;
+  output: (args: { url: URL }) => URL | undefined;
+}
+
 /**
- * The router's URL rewrite in a space: the router sees `/`, `/<nodeId>`,
- * `/settings`, …, while the address bar shows them under `/s/<id>`. Undefined
- * on the personal outline.
+ * The router's URL rewrite for spaces: the router sees `/`, `/<nodeId>`,
+ * `/settings`, …, while the address bar shows them under `/s/<id>`.
+ *
+ * Each router gets its own rewrite, which remembers the prefix it stripped on
+ * the way in and adds the same one back on the way out. That matters on the
+ * dev server, which builds a router per request and has no `window`: without
+ * the round trip it would match `/s/<id>` as `/` and redirect there.
  */
-export function spaceRewrite():
-  | {
-      input: (args: { url: URL }) => URL | undefined;
-      output: (args: { url: URL }) => URL | undefined;
-    }
-  | undefined {
-  if (prefix === null) return undefined;
+export function spaceRewrite(): SpaceRewrite {
+  let current = prefix;
   return {
     input: ({ url }) => {
-      if (url.pathname !== prefix && !url.pathname.startsWith(`${prefix}/`))
-        return undefined;
+      const m = SPACE_PATH.exec(url.pathname);
+      if (!m) return undefined;
+      current = m[1]!;
       const next = new URL(url);
-      next.pathname = url.pathname.slice(prefix.length) || "/";
+      next.pathname = m[2] || "/";
       return next;
     },
     output: ({ url }) => {
-      if (url.pathname.startsWith(`${prefix}/`) || url.pathname === prefix)
+      if (current === null) return undefined;
+      if (url.pathname.startsWith(`${current}/`) || url.pathname === current)
         return undefined;
       const next = new URL(url);
       next.pathname =
-        url.pathname === "/" ? prefix : `${prefix}${url.pathname}`;
+        url.pathname === "/" ? current : `${current}${url.pathname}`;
       return next;
     },
   };

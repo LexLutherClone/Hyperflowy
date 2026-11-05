@@ -49,6 +49,12 @@ async function openSpace(
     (route) => route.fulfill({ json: { workspaces: [], invites: [] } }),
   );
   await page.goto(path);
+  // The first load includes the cold editor graph and the space lookup: wait
+  // within the test budget, not a 5s assertion budget (openSeededOutline).
+  await page
+    .locator('[aria-label="Shared note"], h1')
+    .first()
+    .waitFor({ state: "visible" });
 }
 
 test("an editor's space: banner, rows editable, zoom stays inside the space", async ({
@@ -87,6 +93,9 @@ test("a space you can't reach says so and offers a way back", async ({
 
 test("deep links into a space open the zoomed node", async ({ page }) => {
   await openSpace(page, "editor", "/s/sp1/ads");
+  // Still inside the space, not redirected to a personal-outline address.
+  await expect(page).toHaveURL(/\/s\/sp1\/ads$/);
+  await expect(page.getByRole("region", { name: "Shared note" })).toBeVisible();
   await expect(page.locator("h2").first()).toContainText("Buy ads");
 });
 
