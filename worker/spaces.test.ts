@@ -71,6 +71,8 @@ const outline = (name: string) => {
 
 /** Every field these routes return; each response fills a subset. */
 interface SpacesBody {
+  count?: number;
+  removed?: boolean;
   people?: { name: string | null; email: string }[];
   space?: { id: string; name: string; url: string; ownerId: string };
   replaced?: boolean;
@@ -97,7 +99,7 @@ async function call(
   userId: string,
   method: string,
   path: string,
-  input?: Readonly<Record<string, string>>,
+  input?: Readonly<Record<string, string | readonly string[]>>,
 ) {
   const request = new Request(`${ORIGIN}${path}`, {
     method,
@@ -379,5 +381,96 @@ describe("notifications", () => {
     expect(sent).toEqual([
       { to: "bo@example.com", subject: "Ann mentioned you in “Launch plan”" },
     ]);
+  });
+});
+
+describe("copy and move between outlines", () => {
+  async function sharedWith(role: string) {
+    const id = (await share()).body.space!.id;
+    await call("ann", "PUT", `/api/spaces/${id}/grants`, {
+      granteeType: "email",
+      email: "bo@example.com",
+      role,
+    });
+    // The space's DO holds what sharing copied into it.
+    outline(`space:${id}`).batches = [];
+    return id;
+  }
+  const insertedIds = (batch: ChangeOp[] | undefined) =>
+    (batch ?? []).flatMap((o) => (o.op === "insert" ? [o.value.text] : []));
+
+  test("an editor copies from their outline, leaving out unticked branches", async () => {
+    const id = await sharedWith("editor");
+    outline("bo").nodes = [
+      createNode({ id: "x", text: "Mine" }),
+      createNode({ id: "x1", parentId: "x", text: "Keep" }),
+      createNode({
+        id: "x2",
+        parentId: "x",
+        prevSiblingId: "x1",
+        text: "Skip",
+      }),
+    ];
+    const res = await call("bo", "POST", `/api/spaces/${id}/copy-in`, {
+      rootId: "x",
+      exclude: ["x2"],
+      mode: "copy",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(2);
+    expect(insertedIds(outline(`space:${id}`).batches[0])).toEqual([
+      "Mine",
+      "Keep",
+    ]);
+    // A copy leaves the original alone.
+    expect(outline("bo").batches).toEqual([]);
+  });
+
+  test("viewers and commenters can't add to the note", async () => {
+    const id = await sharedWith("commenter");
+    outline("bo").nodes = [createNode({ id: "x", text: "Mine" })];
+    const res = await call("bo", "POST", `/api/spaces/${id}/copy-in`, {
+      rootId: "x",
+      exclude: [],
+      mode: "copy",
+    });
+    expect(res.status).toBe(403);
+    expect(outline(`space:${id}`).batches).toEqual([]);
+  });
+
+  test("a move writes the copy, then removes the originals", async () => {
+    const id = await sharedWith("editor");
+    outline("bo").nodes = [
+      createNode({ id: "x", text: "Mine" }),
+      createNode({ id: "x1", parentId: "x", text: "Child" }),
+    ];
+    const res = await call("bo", "POST", `/api/spaces/${id}/copy-in`, {
+      rootId: "x",
+      exclude: [],
+      mode: "move",
+    });
+    expect(res.body).toMatchObject({ count: 2, removed: true });
+    const removed = outline("bo").batches[0]!.flatMap((o) =>
+      o.op === "delete" ? [o.key] : [],
+    );
+    expect(removed.sort()).toEqual(["x", "x1"]);
+  });
+
+  test("anyone who can read the note copies from it into their outline", async () => {
+    const id = await sharedWith("viewer");
+    const res = await call("bo", "POST", `/api/spaces/${id}/copy-out`, {
+      rootId: "p1",
+      exclude: [],
+    });
+    expect(res.status).toBe(200);
+    expect(insertedIds(outline("bo").batches[0])).toEqual(["Copy"]);
+    expect(
+      (
+        await call("cy", "POST", `/api/spaces/${id}/copy-out`, {
+          rootId: "p1",
+          exclude: [],
+        })
+      ).status,
+    ).toBe(404);
   });
 });

@@ -7,6 +7,7 @@ import type { UserOutlineDO } from "./outline-do";
 
 import { flattenInline } from "../src/data/inline-text";
 import {
+  canEdit,
   canRead,
   canShare,
   SPACE_NAME_MAX,
@@ -23,6 +24,7 @@ import {
   segments,
 } from "./api-http";
 import { shareEmail } from "./collab-email";
+import { planCopy, type CopyPlanError } from "./copy-plan";
 import { sendEmail, type EmailEnv } from "./email";
 import { planShare, spaceLinkText, type SharePlanError } from "./share-plan";
 import * as spaces from "./spaces-store";
@@ -91,6 +93,36 @@ const RevokeBody = Schema.Struct({
   granteeId: Schema.String,
 });
 const DailyRow = Schema.Struct({ nodeId: Schema.String });
+const CopyInBody = Schema.Struct({
+  rootId: Schema.String,
+  exclude: Schema.Array(Schema.String),
+  mode: Schema.Literals(["copy", "move"]),
+});
+const CopyOutBody = Schema.Struct({
+  rootId: Schema.String,
+  exclude: Schema.Array(Schema.String),
+});
+
+const COPY_REFUSAL = {
+  "not-found": "That bullet doesn't exist anymore.",
+  locked: "Unlock this bullet and everything under it before moving it.",
+  daily: "Daily notes can't be moved into a shared note. Copy them instead.",
+  "mirror-in":
+    "A mirror elsewhere in your outline points into this bullet. Remove that mirror before moving, or copy instead.",
+} satisfies Record<CopyPlanError, string>;
+
+/** The node ids the daily calendar points at, which must stay put. */
+async function dailyIds(outline: ShareSource): Promise<Set<string>> {
+  const decoded = Schema.decodeUnknownOption(Schema.Array(Schema.Unknown))(
+    await outline.getKv("daily-index"),
+  );
+  const ids = new Set<string>();
+  for (const row of decoded._tag === "Some" ? decoded.value : []) {
+    const d = Schema.decodeUnknownOption(DailyRow)(row);
+    if (d._tag === "Some") ids.add(d.value.nodeId);
+  }
+  return ids;
+}
 
 const SHARE_REFUSAL = {
   "not-found": "That bullet doesn't exist anymore.",
@@ -264,6 +296,102 @@ export const handleSpaces = Effect.fn("Spaces.handle")(
             return json({ name: clean });
           }
           return json({ error: "method_not_allowed" }, 405);
+        }
+
+        // Copy (or move) bullets from your outline into this note: editors and
+        // admins only (ADR 0083). The copy is written first; a move removes
+        // the originals only after.
+        if (sub === "copy-in" && method === "POST") {
+          if (!canEdit(role))
+            return yield* Effect.fail(
+              fail(403, "forbidden", "You can't add to this shared note."),
+            );
+          const input = yield* decodeBody(request, CopyInBody);
+          const target = spaceStub(env, spaceId);
+          const [source, daily, targetNodes] = yield* Effect.promise(() =>
+            Promise.all([
+              actor.outline.getNodes(),
+              dailyIds(actor.outline),
+              target.getNodes(),
+            ]),
+          );
+          const plan = planCopy({
+            source,
+            rootId: input.rootId,
+            exclude: new Set(input.exclude),
+            mode: input.mode,
+            target: targetNodes,
+            dailyNodeIds: daily,
+            now,
+          });
+          if ("error" in plan)
+            return yield* Effect.fail(
+              fail(409, `copy_${plan.error}`, COPY_REFUSAL[plan.error]),
+            );
+          const copied = yield* Effect.promise(() =>
+            target
+              .applyBatch(plan.targetOps)
+              .then(() => true)
+              .catch(() => false),
+          );
+          if (!copied)
+            return yield* Effect.fail(
+              fail(
+                409,
+                "copy_failed",
+                "Couldn't add to that note: its top bullet may be locked. Nothing changed.",
+              ),
+            );
+          const removed =
+            input.mode === "move"
+              ? yield* Effect.promise(() =>
+                  actor.outline
+                    .applyBatch(plan.sourceOps)
+                    .then(() => true)
+                    .catch(() => false),
+                )
+              : false;
+          return json({ count: plan.count, removed });
+        }
+
+        // Copy bullets from this note into your own outline: anyone who can
+        // read the note (ADR 0083).
+        if (sub === "copy-out" && method === "POST") {
+          const input = yield* decodeBody(request, CopyOutBody);
+          const [source, targetNodes] = yield* Effect.promise(() =>
+            Promise.all([
+              spaceStub(env, spaceId).getNodes(),
+              actor.outline.getNodes(),
+            ]),
+          );
+          const plan = planCopy({
+            source,
+            rootId: input.rootId,
+            exclude: new Set(input.exclude),
+            mode: "copy",
+            target: targetNodes,
+            dailyNodeIds: new Set(),
+            now,
+          });
+          if ("error" in plan)
+            return yield* Effect.fail(
+              fail(409, `copy_${plan.error}`, COPY_REFUSAL[plan.error]),
+            );
+          const copied = yield* Effect.promise(() =>
+            actor.outline
+              .applyBatch(plan.targetOps)
+              .then(() => true)
+              .catch(() => false),
+          );
+          if (!copied)
+            return yield* Effect.fail(
+              fail(
+                409,
+                "copy_failed",
+                "Couldn't copy into your outline. Nothing changed.",
+              ),
+            );
+          return json({ count: plan.count });
         }
 
         // Who has access, for anyone who does (the mention picker, ADR 0082).

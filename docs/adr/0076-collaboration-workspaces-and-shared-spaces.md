@@ -93,8 +93,9 @@ the object count outgrows one cron invocation's subrequest budget.
 4. **Comments and the Commenter role.** Done:
    [ADR 0081](./0081-comments.md), with mentions and email notifications in
    [ADR 0082](./0082-collaboration-notifications.md).
-5. **Mirrors across spaces.** (space, node) mirrors, the refusal rule, and the
-   selective-copy dialog.
+5. **Mirrors across spaces.** Done as decided: a private mirror can't reach a
+   share (by construction), and copy or move with child selection is the
+   alternative ([ADR 0083](./0083-copy-and-move-between-outlines.md)).
 6. **Swap.** Move a mirror's source into a shared space, leaving a mirror
    behind.
 

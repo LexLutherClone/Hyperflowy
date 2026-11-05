@@ -19,6 +19,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { useUnseenReleaseCount } from "../data/changelog-cursor";
@@ -38,6 +39,7 @@ import { getViewRootId } from "../data/view-state";
 import { signOutAndReload, useSession } from "../lib/auth-client";
 import { usePluginChrome } from "../plugins/registry";
 import { openChangelog } from "./changelog-opener";
+import { CopyDialog } from "./copy-dialog";
 import { useShowCompleted } from "./show-completed-provider";
 import { onSpacePage, shareBullet } from "./spaces";
 import { setSpotlightEnabled, useSpotlightEnabled } from "./spotlight-mode";
@@ -181,121 +183,135 @@ export function HeaderViewMenu() {
   const rootId = useParams({ strict: false }).nodeId ?? null;
   const current = rootId ? index.byId.get(rootId) : null;
   const nodeView = useNodeView(rootId);
+  const [copying, setCopying] = useState<string | null>(null);
 
   return (
-    <DropdownMenu title="View options">
-      <DropdownMenuTrigger
-        render={
-          <Button variant="ghost" size="icon-sm" title="View options">
-            <HugeiconsIcon icon={SlidersHorizontalIcon} />
-            <span className="sr-only">View options</span>
-          </Button>
-        }
-      />
-      <DropdownMenuContent align="end" className="min-w-52">
-        <div
-          role="presentation"
-          className="px-1.5 py-1 text-xs font-medium text-muted-foreground"
-        >
-          This view
-        </div>
-        {current && (
-          <DropdownMenuCheckboxItem
-            checked={current.bookmarkedAt != null}
-            onCheckedChange={(checked) => toggleBookmark(current.id, checked)}
+    <>
+      <DropdownMenu title="View options">
+        <DropdownMenuTrigger
+          render={
+            <Button variant="ghost" size="icon-sm" title="View options">
+              <HugeiconsIcon icon={SlidersHorizontalIcon} />
+              <span className="sr-only">View options</span>
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end" className="min-w-52">
+          <div
+            role="presentation"
+            className="px-1.5 py-1 text-xs font-medium text-muted-foreground"
           >
-            <HugeiconsIcon icon={Bookmark01Icon} />
-            Bookmark this page
-          </DropdownMenuCheckboxItem>
-        )}
-
-        {current && (
-          <DropdownMenuCheckboxItem
-            checked={nodeView === "board"}
-            onCheckedChange={(checked) =>
-              setNodeView(current.id, checked ? "board" : "list")
-            }
-          >
-            <HugeiconsIcon icon={KanbanIcon} />
-            Board view
-          </DropdownMenuCheckboxItem>
-        )}
-
-        {current && !onSpacePage() && (
-          <DropdownMenuItem onClick={() => void shareBullet(current.id)}>
-            <HugeiconsIcon icon={UserGroupIcon} />
-            Share this page…
-          </DropdownMenuItem>
-        )}
-
-        <DropdownMenuItem onClick={() => setViewCollapsed(true)}>
-          <HugeiconsIcon icon={ArrowShrinkIcon} />
-          Collapse all
-        </DropdownMenuItem>
-
-        <DropdownMenuItem onClick={() => setViewCollapsed(false)}>
-          <HugeiconsIcon icon={ArrowExpandIcon} />
-          Expand all
-        </DropdownMenuItem>
-
-        <DropdownMenuItem onClick={() => void copyOutlineAsMarkdown()}>
-          <HugeiconsIcon icon={Copy01Icon} />
-          Copy as Markdown
-        </DropdownMenuItem>
-
-        <DropdownMenuSeparator />
-
-        <div
-          role="presentation"
-          className="px-1.5 py-1 text-xs font-medium text-muted-foreground"
-        >
-          Display
-        </div>
-        <DropdownMenuCheckboxItem
-          checked={showCompleted}
-          onCheckedChange={setShowCompleted}
-        >
-          <HugeiconsIcon icon={CheckmarkCircle01Icon} />
-          Show completed
-        </DropdownMenuCheckboxItem>
-
-        <DropdownMenuCheckboxItem
-          checked={spotlight}
-          onCheckedChange={setSpotlightEnabled}
-        >
-          <HugeiconsIcon icon={FocusIcon} />
-          Spotlight mode
-        </DropdownMenuCheckboxItem>
-
-        {globalActions
-          .filter(
-            (action) =>
-              action.menuLabel && (action.available?.(rootId) ?? true),
-          )
-          .map((action) =>
-            action.checked === undefined ? (
-              <DropdownMenuItem
-                key={action.id}
-                disabled={action.disabled}
-                onClick={() => action.run(rootId)}
-              >
-                <action.icon />
-                {action.menuLabel}
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuCheckboxItem
-                key={action.id}
-                checked={action.checked}
-                disabled={action.disabled}
-                onCheckedChange={() => action.run(rootId)}
-              >
-                <action.icon />
-                {action.menuLabel}
-              </DropdownMenuCheckboxItem>
-            ),
+            This view
+          </div>
+          {current && (
+            <DropdownMenuCheckboxItem
+              checked={current.bookmarkedAt != null}
+              onCheckedChange={(checked) => toggleBookmark(current.id, checked)}
+            >
+              <HugeiconsIcon icon={Bookmark01Icon} />
+              Bookmark this page
+            </DropdownMenuCheckboxItem>
           )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+
+          {current && (
+            <DropdownMenuCheckboxItem
+              checked={nodeView === "board"}
+              onCheckedChange={(checked) =>
+                setNodeView(current.id, checked ? "board" : "list")
+              }
+            >
+              <HugeiconsIcon icon={KanbanIcon} />
+              Board view
+            </DropdownMenuCheckboxItem>
+          )}
+
+          {current && !onSpacePage() && (
+            <DropdownMenuItem onClick={() => void shareBullet(current.id)}>
+              <HugeiconsIcon icon={UserGroupIcon} />
+              Share this page…
+            </DropdownMenuItem>
+          )}
+          {current && (
+            <DropdownMenuItem onClick={() => setCopying(current.id)}>
+              <HugeiconsIcon icon={Copy01Icon} />
+              {onSpacePage()
+                ? "Copy to my outline…"
+                : "Copy or move to a shared note…"}
+            </DropdownMenuItem>
+          )}
+
+          <DropdownMenuItem onClick={() => setViewCollapsed(true)}>
+            <HugeiconsIcon icon={ArrowShrinkIcon} />
+            Collapse all
+          </DropdownMenuItem>
+
+          <DropdownMenuItem onClick={() => setViewCollapsed(false)}>
+            <HugeiconsIcon icon={ArrowExpandIcon} />
+            Expand all
+          </DropdownMenuItem>
+
+          <DropdownMenuItem onClick={() => void copyOutlineAsMarkdown()}>
+            <HugeiconsIcon icon={Copy01Icon} />
+            Copy as Markdown
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+
+          <div
+            role="presentation"
+            className="px-1.5 py-1 text-xs font-medium text-muted-foreground"
+          >
+            Display
+          </div>
+          <DropdownMenuCheckboxItem
+            checked={showCompleted}
+            onCheckedChange={setShowCompleted}
+          >
+            <HugeiconsIcon icon={CheckmarkCircle01Icon} />
+            Show completed
+          </DropdownMenuCheckboxItem>
+
+          <DropdownMenuCheckboxItem
+            checked={spotlight}
+            onCheckedChange={setSpotlightEnabled}
+          >
+            <HugeiconsIcon icon={FocusIcon} />
+            Spotlight mode
+          </DropdownMenuCheckboxItem>
+
+          {globalActions
+            .filter(
+              (action) =>
+                action.menuLabel && (action.available?.(rootId) ?? true),
+            )
+            .map((action) =>
+              action.checked === undefined ? (
+                <DropdownMenuItem
+                  key={action.id}
+                  disabled={action.disabled}
+                  onClick={() => action.run(rootId)}
+                >
+                  <action.icon />
+                  {action.menuLabel}
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuCheckboxItem
+                  key={action.id}
+                  checked={action.checked}
+                  disabled={action.disabled}
+                  onCheckedChange={() => action.run(rootId)}
+                >
+                  <action.icon />
+                  {action.menuLabel}
+                </DropdownMenuCheckboxItem>
+              ),
+            )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {copying && (
+        <CopyDialog rootId={copying} onClose={() => setCopying(null)} />
+      )}
+    </>
   );
 }
 

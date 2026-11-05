@@ -33,7 +33,9 @@ type RequestBody =
   | { name: string }
   | { granteeType: "email"; email: string; role: SpaceRole }
   | { granteeType: "group"; groupId: string; role: SpaceRole }
-  | { granteeType: "email" | "group"; granteeId: string };
+  | { granteeType: "email" | "group"; granteeId: string }
+  | { rootId: string; exclude: string[]; mode: "copy" | "move" }
+  | { rootId: string; exclude: string[] };
 
 const ErrorBody = Schema.Struct({ message: Schema.String });
 
@@ -108,3 +110,32 @@ export const revokeGrant = (
     granteeType,
     granteeId,
   });
+
+/** Copy (or move) a bullet of your outline into a shared note (ADR 0083). */
+export const copyIntoSpace = (
+  spaceId: string,
+  rootId: string,
+  exclude: string[],
+  mode: "copy" | "move",
+) =>
+  request<{ count: number; removed: boolean }>(
+    "POST",
+    `${at(spaceId)}/copy-in`,
+    mode === "move"
+      ? "Couldn't move that bullet."
+      : "Couldn't copy that bullet.",
+    { rootId, exclude, mode },
+  );
+
+/** Copy a bullet of a shared note into your own outline (ADR 0083). */
+export const copyOutOfSpace = (
+  spaceId: string,
+  rootId: string,
+  exclude: string[],
+) =>
+  request<{ count: number }>(
+    "POST",
+    `${at(spaceId)}/copy-out`,
+    "Couldn't copy into your outline.",
+    { rootId, exclude },
+  );

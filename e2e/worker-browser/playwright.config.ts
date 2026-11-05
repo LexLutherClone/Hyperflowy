@@ -9,6 +9,7 @@ export default defineConfig({
     "spaces-api.spec.ts",
     "spaces-ui.spec.ts",
     "comments.spec.ts",
+    "copy.spec.ts",
   ],
   workers: 1,
   retries: 0,
