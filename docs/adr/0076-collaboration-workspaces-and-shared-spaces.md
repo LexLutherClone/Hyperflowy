@@ -85,8 +85,11 @@ the object count outgrows one cron invocation's subrequest budget.
    [ADR 0078](./0078-workspaces-and-groups.md).
 2. **Shared spaces.** Done: [ADR 0079](./0079-shared-spaces.md). A space
    opens at its own address; milestone 3 brings it inline into your outline.
-3. **Multi-space client.** Several sync streams in one tree, cross-space moves,
-   read-only rendering, permission-aware search, backlinks, export, MCP, CLI.
+3. **Multi-space client.** First step done: live read-only previews of shared
+   notes inside your outline
+   ([ADR 0080](./0080-inline-shared-note-previews.md)). Still to do: several
+   sync streams in one tree for inline editing, cross-space moves,
+   permission-aware search, backlinks, export, MCP, CLI.
 4. **Comments and the Commenter role.** Comment threads on nodes, mentions,
    notifications through `worker/email.ts`.
 5. **Mirrors across spaces.** (space, node) mirrors, the refusal rule, and the

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import type { ServerMessage } from "../src/data/wire-schema";
+
 import { seedOutline, type SeedNode } from "./fixtures";
 
 // Shared-note pages (ADR 0079) with the outline mocked: the gate, the banner,
@@ -143,4 +145,111 @@ test("sharing a page from your outline opens the new space", async ({
   await page.getByRole("menuitem", { name: "Share this page…" }).click();
   await expect(page).toHaveURL(/\/s\/sp9\?share=1$/);
   expect(posted).toEqual({ nodeId: "plan" });
+});
+
+test.describe("inline previews in your outline", () => {
+  const SPACE_NODES = [
+    { id: "plan", parentId: null, prevSiblingId: null, text: "Launch plan" },
+    { id: "copy", parentId: "plan", prevSiblingId: null, text: "Write copy" },
+    { id: "ads", parentId: "plan", prevSiblingId: "copy", text: "**Buy** ads" },
+  ].map((n) => ({
+    ...n,
+    isTask: false,
+    completed: false,
+    collapsed: false,
+    bookmarkedAt: null,
+    locked: false,
+    mirrorOf: null,
+    createdAt: 0,
+    updatedAt: 0,
+    origin: null,
+    kind: null,
+  }));
+
+  test("a shared-note link shows the note live, read-only, with a way to open it", async ({
+    page,
+  }) => {
+    await seedOutline(page, [
+      { id: "inbox", parentId: null, prevSiblingId: null, text: "Inbox" },
+      {
+        id: "link",
+        parentId: null,
+        prevSiblingId: "inbox",
+        text: "[Launch plan](/s/sp1)",
+      },
+    ]);
+    await page.route(
+      (url) => url.pathname === "/api/spaces/sp1",
+      (route) =>
+        route.fulfill({
+          json: {
+            space: { id: "sp1", name: "Launch plan", ownerId: "ann" },
+            role: "editor",
+            grants: [],
+          },
+        }),
+    );
+    let push: ((frame: ServerMessage) => void) | null = null;
+    await page.routeWebSocket(
+      (url) => url.pathname === "/api/spaces/sp1/sync",
+      (ws) => {
+        push = (frame) => ws.send(JSON.stringify(frame));
+        ws.onMessage(() =>
+          ws.send(
+            JSON.stringify({ type: "snapshot", seq: 1, nodes: SPACE_NODES }),
+          ),
+        );
+      },
+    );
+    await page.goto("/");
+    const preview = page.locator('[data-space-preview="sp1"]');
+    await preview.waitFor({ state: "visible" });
+    await expect(preview).toContainText("Can edit");
+    await expect(preview.locator("[data-preview-node]")).toHaveText([
+      /Write copy/,
+      /Buy ads/,
+    ]);
+    // Read-only: plain text, no editor inside the preview.
+    await expect(preview.locator("[contenteditable]")).toHaveCount(0);
+
+    // A change in the shared note arrives live.
+    push!({
+      type: "change",
+      seq: 2,
+      ops: [
+        {
+          op: "update",
+          value: { ...SPACE_NODES[1]!, text: "Write better copy" },
+        },
+      ],
+    });
+    await expect(preview.locator('[data-preview-node="copy"]')).toHaveText(
+      /Write better copy/,
+    );
+
+    await preview.getByRole("button", { name: "Hide preview" }).click();
+    await expect(preview.locator("[data-preview-node]")).toHaveCount(0);
+    await expect(preview.locator('a[href="/s/sp1"]')).toHaveText("Open");
+  });
+
+  test("a link to a note no longer shared with you says so", async ({
+    page,
+  }) => {
+    await seedOutline(page, [
+      {
+        id: "link",
+        parentId: null,
+        prevSiblingId: null,
+        text: "[Old](/s/gone)",
+      },
+    ]);
+    await page.route(
+      (url) => url.pathname === "/api/spaces/gone",
+      (route) => route.fulfill({ status: 404, json: { error: "not_found" } }),
+    );
+    await page.goto("/");
+    const preview = page.locator('[data-space-preview="gone"]');
+    await preview.waitFor({ state: "visible" });
+    await expect(preview).toContainText("isn't shared with you anymore");
+  });
 });

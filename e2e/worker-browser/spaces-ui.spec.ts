@@ -152,6 +152,15 @@ test("share a page, collaborate live, downgrade, and revoke", async ({
   await expect(text(ann.page, "plan")).toContainText("Launch plan");
   await expect(text(ann.page, "copy")).toHaveCount(0);
 
+  // Under the link, a live read-only preview of the shared note (ADR 0080),
+  // with Bo's edit in it.
+  const preview = ann.page.locator("[data-space-preview]");
+  await expect(preview.locator('[data-preview-node="copy"]')).toHaveText(
+    /Write copy today/,
+  );
+  await expect(preview).toContainText("Admin");
+  await expect(preview.locator("[contenteditable]")).toHaveCount(0);
+
   await ann.context.close();
   await bo.context.close();
 });

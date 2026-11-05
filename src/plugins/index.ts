@@ -19,6 +19,7 @@ import nodeLinks from "./node-links";
 import provenance from "./provenance";
 import routeBible from "./route-bible";
 import scribble from "./scribble";
+import sharedNotes from "./shared-notes";
 import spoiler from "./spoiler";
 import tags from "./tags";
 import todos from "./todos";
@@ -33,6 +34,7 @@ export const plugins: PluginDef[] = [
   code,
   links,
   embeds,
+  sharedNotes,
   nodeLinks,
   routeBible,
   tags,
