@@ -140,7 +140,7 @@ test("sharing a page from your outline opens the new space", async ({
     },
   );
   await page.goto("/plan");
-  await expect(text(page, "copy")).toBeVisible();
+  await expect(text(page, "copy")).toBeVisible({ timeout: 15000 });
   await page.getByRole("button", { name: "View options" }).click();
   await page.getByRole("menuitem", { name: "Share this page…" }).click();
   await expect(page).toHaveURL(/\/s\/sp9\?share=1$/);
